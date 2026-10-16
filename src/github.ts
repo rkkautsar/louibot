@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
 
 export interface IssueRecord {
   number: number;
@@ -106,6 +107,20 @@ export class GitHub {
   }
 
   private async run(args: string[], input?: string): Promise<string> {
+    const methodIndex = args.indexOf("--method");
+    const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+    const retryable = method !== "POST";
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.runOnce(args, input);
+      } catch (error) {
+        if (!retryable || attempt >= 2 || !this.isRetryable(error)) throw error;
+        await delay(500 * 2 ** attempt);
+      }
+    }
+  }
+
+  private async runOnce(args: string[], input?: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const child = execFile(
         "gh",
@@ -132,6 +147,15 @@ export class GitHub {
       );
       child.stdin?.end(input);
     });
+  }
+
+  private isRetryable(error: unknown): boolean {
+    const status = error instanceof GitHubApiError ? error.status : undefined;
+    if (status === 429 || (status !== undefined && status >= 500)) return true;
+    const code = (error as NodeJS.ErrnoException)?.code;
+    return ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN"].includes(
+      code ?? "",
+    );
   }
 
   private async paginated<T>(endpoint: string): Promise<T[]> {
