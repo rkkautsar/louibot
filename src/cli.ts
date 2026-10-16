@@ -13,10 +13,11 @@ import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { stringify } from "yaml";
 import { config, schema } from "./config.js";
+import { knownPricing } from "./pricing.js";
 import { GitHub } from "./github.js";
 import { Store } from "./store.js";
 import { git } from "./workspace.js";
-import { tick } from "./workflow.js";
+import { formatDuration, tick } from "./workflow.js";
 import { runDoctor } from "./doctor.js";
 const cli = new Command()
   .name("louibot")
@@ -31,16 +32,16 @@ cli
     "--api-key-env <name>",
     "Host environment variable containing the compatible API key",
   )
-  .requiredOption("--input-price <usd>", "USD per million input tokens")
-  .requiredOption("--output-price <usd>", "USD per million output tokens")
+  .option("--input-price <usd>", "USD per million input tokens")
+  .option("--output-price <usd>", "USD per million output tokens")
   .action(initializeRepository);
 
 interface InitOptions {
   model: string;
   baseUrl?: string;
   apiKeyEnv?: string;
-  inputPrice: string;
-  outputPrice: string;
+  inputPrice?: string;
+  outputPrice?: string;
 }
 
 async function initializeRepository(options: InitOptions) {
@@ -49,6 +50,19 @@ async function initializeRepository(options: InitOptions) {
   const remote = await git(repositoryRoot, ["remote", "get-url", "origin"]);
   const match = remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
   if (!match) throw new Error("origin must be a GitHub repository");
+  if (!!options.inputPrice !== !!options.outputPrice)
+    throw new Error("Provide both --input-price and --output-price together");
+  const pricing =
+    options.inputPrice && options.outputPrice
+      ? {
+          inputUsdPerMillion: Number(options.inputPrice),
+          outputUsdPerMillion: Number(options.outputPrice),
+        }
+      : knownPricing(options.model);
+  if (!pricing)
+    throw new Error(
+      `No built-in pricing is available for ${options.model}. Provide --input-price and --output-price (USD per million tokens).`,
+    );
   const repositoryConfig = schema.parse({
     repository: match[1],
     model: options.model,
@@ -57,8 +71,8 @@ async function initializeRepository(options: InitOptions) {
         ? { baseUrl: options.baseUrl, apiKeyEnv: options.apiKeyEnv }
         : undefined,
     agent: {
-      inputUsdPerMillion: Number(options.inputPrice),
-      outputUsdPerMillion: Number(options.outputPrice),
+      inputUsdPerMillion: pricing.inputUsdPerMillion,
+      outputUsdPerMillion: pricing.outputUsdPerMillion,
     },
   });
   mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
@@ -82,7 +96,9 @@ cli.command("status").action(() => {
       issue: job.issue,
       state: store.stopped(job.issue) ? "stopped" : job.status,
       revision: job.revision,
-      costReservedUsd: job.cost,
+      model: job.model ?? "unknown",
+      agentTime: formatDuration(job.codingSeconds),
+      estimatedCostUsd: job.cost,
       last: job.last,
       detail: (job.error ?? job.feedback).slice(0, 120),
     })),

@@ -46,11 +46,43 @@ export function validationDetails(tests: string): string {
   return `<details>\n<summary>Validation results</summary>\n\n\`\`\`text\n${safeCodeBlock(tests)}\n\`\`\`\n\n</details>`;
 }
 
+export interface RunMetadata {
+  model?: string;
+  codingSeconds?: number;
+  estimatedCostUsd?: number;
+}
+
+export function formatDuration(seconds: number | undefined): string {
+  const total = Math.max(0, Math.round(seconds ?? 0));
+  const minutes = Math.floor(total / 60);
+  const remaining = total % 60;
+  if (minutes === 0) return `${remaining}s`;
+  return `${minutes}m ${remaining}s`;
+}
+
+function runDetails(metadata?: RunMetadata): string {
+  if (!metadata) return "";
+  const cost =
+    metadata.estimatedCostUsd === undefined
+      ? "unavailable"
+      : `$${metadata.estimatedCostUsd.toFixed(2)}`;
+  return [
+    "## Louibot run",
+    "",
+    `- Model: \`${metadata.model ?? "unknown"}\``,
+    `- Agent time: ${formatDuration(metadata.codingSeconds)}`,
+    `- Estimated spend: ${cost}`,
+    "",
+    "The spend is a controller-side reservation based on configured token rates; provider billing may differ.",
+  ].join("\n");
+}
+
 export function pullRequestBody(
   issue: number,
   summary: string,
   tests: string,
   template?: string,
+  metadata?: RunMetadata,
 ): string {
   const generated = [
     "## Implementation summary",
@@ -61,6 +93,8 @@ export function pullRequestBody(
     "",
     validationDetails(tests),
     "",
+    runDetails(metadata),
+    metadata ? "" : undefined,
     `Closes #${issue}`,
     "",
     "---",
@@ -68,7 +102,9 @@ export function pullRequestBody(
     louibotAttribution,
     "",
     `<!-- louibot:${issue} -->`,
-  ].join("\n");
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join("\n");
   const preservedTemplate = template?.trim();
   return preservedTemplate
     ? `${preservedTemplate}\n\n---\n\n${generated}`
@@ -114,7 +150,11 @@ export function clarificationComment(questions: string[]): string {
   ].join("\n");
 }
 
-export function revisionComment(summary: string, tests: string): string {
+export function revisionComment(
+  summary: string,
+  tests: string,
+  metadata?: RunMetadata,
+): string {
   return [
     "## Revision published",
     "",
@@ -124,10 +164,24 @@ export function revisionComment(summary: string, tests: string): string {
     "",
     validationDetails(tests),
     "",
+    runDetails(metadata),
+    metadata ? "" : undefined,
     "---",
     "",
     louibotAttribution,
-  ].join("\n");
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join("\n");
+}
+
+function settleCodingTime(job: Job): void {
+  if (!job.codingStartedAt) return;
+  const started = Date.parse(job.codingStartedAt);
+  if (Number.isFinite(started)) {
+    job.codingSeconds =
+      (job.codingSeconds ?? 0) + Math.max(0, (Date.now() - started) / 1000);
+  }
+  delete job.codingStartedAt;
 }
 
 /** Keep model output safe for a single-line git subject and add one issue reference. */
@@ -232,13 +286,22 @@ async function publishChanges(
         result.summary,
         result.tests,
         readPullRequestTemplate(publishingJob.worktree),
+        {
+          model: publishingJob.model,
+          codingSeconds: publishingJob.codingSeconds,
+          estimatedCostUsd: publishingJob.cost,
+        },
       ),
     ));
   publishingJob.pr = pullRequest.number;
   if (job.pr !== undefined) {
     await github.comment(
       pullRequest.number,
-      revisionComment(result.summary, result.tests),
+      revisionComment(result.summary, result.tests, {
+        model: publishingJob.model,
+        codingSeconds: publishingJob.codingSeconds,
+        estimatedCostUsd: publishingJob.cost,
+      }),
       `louibot:revision:${publishingJob.issue}:${publishingJob.revision}`,
     );
   }
@@ -270,12 +333,24 @@ export function workflow(
       const currentJob = {
         ...job,
         cost: Math.max(job.cost, persistedJob?.cost ?? 0),
+        codingSeconds: Math.max(
+          job.codingSeconds ?? 0,
+          persistedJob?.codingSeconds ?? 0,
+        ),
       };
       if (store.stopped(currentJob.issue)) throw new Error("Job stopped");
       delete currentJob.error;
       await prepare(root, currentJob.worktree, currentJob.branch);
+      settleCodingTime(currentJob);
+      currentJob.codingStartedAt = new Date().toISOString();
       await save(currentJob, "coding");
-      const result = await code(config, currentJob, store, signal);
+      let result: Result;
+      try {
+        result = await code(config, currentJob, store, signal);
+      } finally {
+        settleCodingTime(currentJob);
+        store.save(currentJob);
+      }
       return { job: currentJob, result };
     })
     .addNode("clarify", async ({ job, result }) => {
@@ -369,7 +444,11 @@ function invocationOptions(job: Job, signal: AbortSignal): WorkflowOptions {
   };
 }
 
-async function claimImplementationRequests(store: Store, github: GitHub) {
+async function claimImplementationRequests(
+  store: Store,
+  github: GitHub,
+  config: Config,
+) {
   for (const request of await github.implementationRequests()) {
     const issue = request.issue;
     store.claim({
@@ -379,7 +458,9 @@ async function claimImplementationRequests(store: Store, github: GitHub) {
       branch: `louibot/issue-${issue.number}`,
       worktree: `${store.dir}/workspaces/${issue.number}`,
       revision: 0,
+      model: config.model,
       cost: 0,
+      codingSeconds: 0,
       last: new Date().toISOString(),
       events: [`implement:${request.commentId}`],
       feedback: "",
@@ -560,7 +641,7 @@ export async function tick(
     config.endpoint ? process.env[config.endpoint.apiKeyEnv] : undefined,
   );
   const github = githubClient ?? new GitHub(config.repository);
-  await claimImplementationRequests(store, github);
+  await claimImplementationRequests(store, github, config);
   const jobs = store.all();
   if (!jobs.length || signal.aborted) return;
 

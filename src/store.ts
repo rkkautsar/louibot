@@ -9,7 +9,10 @@ export interface Job {
   worktree: string;
   revision: number;
   pr?: number;
+  model?: string;
   cost: number;
+  codingSeconds?: number;
+  codingStartedAt?: string;
   last: string;
   events: string[];
   feedback: string;

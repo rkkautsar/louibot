@@ -23,12 +23,12 @@ Linux/WSL, Node.js 22+, GitHub CLI (`gh`), and Docker are required. Run these co
 ```sh
 gh auth login
 # Set the model API key on the host.
-louibot init --model openai/YOUR_MODEL --input-price 1 --output-price 4
+louibot init --model openai/gpt-6-luna
 louibot doctor
 louibot start
 ```
 
-Prices above are illustrative USD per million tokens. Set actual provider rates, including any applicable surcharges. The controller reserves a conservative estimated maximum before each call; reported cost is reserved spend, not billing reconciliation. Configuration lives in `.louibot/config.yaml`; never commit that directory.
+Louibot fills prices for a small catalog of direct OpenAI models. For other providers and all OpenAI-compatible endpoints, pass `--input-price` and `--output-price` as USD per million tokens; compatible services can apply their own gateway, negotiated, or regional rates, and there is no standard API for discovering them safely. The controller reserves a conservative estimated maximum before each call; reported cost is reserved spend, not billing reconciliation. Configuration lives in `.louibot/config.yaml`; never commit that directory.
 
 Verify authentication with `gh auth status` before starting. Use the following commands for operations and recovery:
 
@@ -74,8 +74,8 @@ agent:
   maxCostUsd: 3
   maxInputTokens: 32000
   maxOutputTokens: 4096
-  inputUsdPerMillion: 1
-  outputUsdPerMillion: 4
+  inputUsdPerMillion: 0.1
+  outputUsdPerMillion: 0.5
 sandbox:
   image: auto
   commandTimeoutSeconds: 120
@@ -101,6 +101,8 @@ Louibot uses `louibot:active` while an issue is active, `louibot:blocked` while 
 ### Pull request templates
 
 If the repository has a standard pull request template in `.github/`, the repository root, or `docs/`, Louibot preserves it at the top of the draft PR description. It appends a clearly marked implementation summary, collapsible validation output, and the issue reference below the template so existing checklists and prompts remain intact.
+
+Draft PRs and revision comments include a Louibot run summary with the model, accumulated active agent time, and estimated reserved spend. The spend is intentionally labeled as an estimate because provider billing, caching, and gateway pricing may differ.
 
 ### Requesting revisions
 
