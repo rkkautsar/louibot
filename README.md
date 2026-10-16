@@ -36,42 +36,7 @@ endpoint:
 
 DeepSeek documents that base URL in its [API documentation](https://api-docs.deepseek.com/). For OpenCode Go models using Chat Completions, set `baseUrl: https://opencode.ai/inference/go/openai/v1` and `apiKeyEnv: OPENCODE_API_KEY`; select a compatible model from the [Go endpoint table](https://opencode.ai/v2/docs/console/go/). Some Go models use different API protocols and cannot use this adapter. Optional `endpoint.reasoningEffort` and `endpoint.tokenLimitParameter` support provider-specific request settings; compatibility must be checked for the chosen model.
 
-Custom transport and tool-call parsing are tested with mocked responses. The Cloudflare Luna route below has also been verified live.
-
-### Cloudflare AI Gateway with Luna
-
-A live tool-call request was verified using Wrangler OAuth credentials and Cloudflare's account API. This uses Cloudflare credits, independently of a Codex subscription. See the [Cloudflare REST API documentation](https://developers.cloudflare.com/ai-gateway/usage/rest-api/).
-
-Use these model settings in `.louibot/config.yaml`, alongside the repository and execution limits:
-
-```yaml
-model: openai-compatible/openai/gpt-6-luna
-endpoint:
-  baseUrl: https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1
-  apiKeyEnv: CLOUDFLARE_API_TOKEN
-  tokenLimitParameter: max_completion_tokens
-  reasoningEffort: none
-```
-
-Luna requires `max_completion_tokens`. Its Chat Completions endpoint requires `reasoning_effort: none` when using function tools, as verified by the provider's error responses. Reasoning-enabled tool calls require a Responses API adapter, which Louibot does not currently provide.
-
-Before starting the worker, retrieve the token into the host environment without printing it:
-
-```sh
-export CLOUDFLARE_API_TOKEN="$(npx wrangler auth token)"
-node dist/cli.js start
-```
-
-The exported OAuth token is a snapshot; a long-running worker does not automatically refresh it. For a persistent installation, use a Cloudflare API token with the documented Workers AI permission. Never commit or pass this token into the sandbox.
-
-To repeat the small live tool-call check (uses Cloudflare credits, executes no shell command):
-
-```sh
-npm run build
-node scripts/check-cloudflare.mjs YOUR_ACCOUNT_ID
-```
-
-The check captures `wrangler auth token --json` into memory, uses the same model adapter as Louibot, and prints only the result and token usage. Full Docker/GitHub lifecycle validation remains outstanding.
+Custom transport and tool-call parsing are tested with mocked responses.
 
 ## Design
 
@@ -105,7 +70,7 @@ npm test
 
 Run the live Docker sandbox smoke test with `node scripts/check-sandbox.mjs` after building. It checks configured resource limits, excluded host credentials and Git metadata, npm installation over the network, workspace synchronization, and container/staging cleanup. It pulls `node:22` if necessary and removes its temporary workspace afterward.
 
-The live trial used Cloudflare Luna and a disposable private repository. The repository's CI runs formatting, type checking, tests, and dependency auditing. No PR is automatically merged.
+The repository's CI runs formatting, type checking, tests, and dependency auditing. No PR is automatically merged.
 
 ## Safety and known limits
 
