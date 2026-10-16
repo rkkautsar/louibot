@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { commitSubject, issuePhase } from "../src/workflow.js";
+import {
+  commitSubject,
+  issuePhase,
+  runWithConcurrency,
+} from "../src/workflow.js";
 import type { Job, JobStatus } from "../src/store.js";
 
 function job(status: JobStatus, outcome?: Job["outcome"]): Job {
@@ -38,6 +42,21 @@ test("only a merged completion gets the done label", () => {
   assert.equal(issuePhase(job("done", "merged")), "done");
   assert.equal(issuePhase(job("done", "closed")), "closed");
   assert.equal(issuePhase(job("done")), "closed");
+});
+
+test("bounded scheduler runs jobs in parallel up to its limit", async () => {
+  let active = 0;
+  let maximum = 0;
+  const seen: number[] = [];
+  await runWithConcurrency([1, 2, 3, 4], 2, async (item) => {
+    active++;
+    maximum = Math.max(maximum, active);
+    seen.push(item);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    active--;
+  });
+  assert.deepEqual(seen, [1, 2, 3, 4]);
+  assert.equal(maximum, 2);
 });
 
 test("commit subjects use model intent, one issue reference, and one line", () => {

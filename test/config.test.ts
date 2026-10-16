@@ -18,6 +18,23 @@ test("GitHub phase labels have defaults", () => {
   });
 });
 
+test("parallel job limit defaults to one and is bounded", () => {
+  assert.equal(schema.parse(base).agent.maxConcurrentJobs, 1);
+  assert.equal(
+    schema.parse({
+      ...base,
+      agent: { ...base.agent, maxConcurrentJobs: 3 },
+    }).agent.maxConcurrentJobs,
+    3,
+  );
+  assert.throws(() =>
+    schema.parse({
+      ...base,
+      agent: { ...base.agent, maxConcurrentJobs: 9 },
+    }),
+  );
+});
+
 test("GitHub label names can be configured", () => {
   const config = schema.parse({
     ...base,

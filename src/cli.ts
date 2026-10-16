@@ -143,14 +143,6 @@ async function startWorker() {
   const github = new GitHub(repositoryConfig.repository);
   process.once("SIGINT", () => shutdownController.abort());
   process.once("SIGTERM", () => shutdownController.abort());
-  const cancellationMonitor = setInterval(() => {
-    if (
-      store
-        .all()
-        .some((job) => job.status === "coding" && store.stopped(job.issue))
-    )
-      shutdownController.abort();
-  }, 500);
   try {
     console.log(`Watching ${repositoryConfig.repository}`);
     while (!shutdownController.signal.aborted) {
@@ -174,7 +166,6 @@ async function startWorker() {
       ).catch(() => {});
     }
   } finally {
-    clearInterval(cancellationMonitor);
     store.db.close();
     unlinkSync(lockPath);
   }

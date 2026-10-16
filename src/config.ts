@@ -40,6 +40,7 @@ export const schema = z
         pollIntervalSeconds: 30,
       }),
     agent: z.object({
+      maxConcurrentJobs: z.number().int().min(1).max(8).default(1),
       maxSteps: z.number().int().positive().default(60),
       maxCostUsd: z.number().positive().default(3),
       maxInputTokens: z.number().int().positive().default(32000),

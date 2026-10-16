@@ -84,6 +84,7 @@ github:
   doneLabel: louibot:done
   pollIntervalSeconds: 30
 agent:
+  maxConcurrentJobs: 1
   maxSteps: 60
   maxCostUsd: 3
   maxInputTokens: 32000
@@ -101,7 +102,7 @@ OpenAI and Anthropic providers read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` res
 
 `agent.ts` contains the fixed prompt, LangChain `createAgent`, one Docker shell tool, and model budget middleware. `workflow.ts` contains the outer LangGraph lifecycle, clarification/review interrupts, polling and reconciliation. `github.ts` owns GitHub mutations. `workspace.ts` owns worktrees and disposable sandboxes. `store.ts` stores minimal job metadata and redacted logs in SQLite/local files. Agent and lifecycle checkpoints have separate SQLite databases.
 
-One local worker runs coding jobs sequentially. Run only one Louibot coordinator for a repository: the worker lock protects a single checkout, but separate clones or machines have independent state and can claim the same comment. They may duplicate model work and race on the issue branch; the first successful push and PR normally wins, while another worker fails and must be stopped or retried. Review revisions have the same limitation. A collaborator with write, maintain, or admin permission can answer clarification or request revisions. PRs are drafts and Louibot never merges them.
+One local worker runs up to `agent.maxConcurrentJobs` coding jobs in parallel; the default is one. Each job has its own worktree, Docker container, checkpoint thread, cancellation signal, and spending limit. Run only one Louibot coordinator for a repository: the worker lock protects a single checkout, but separate clones or machines have independent state and can claim the same comment. They may duplicate model work and race on the issue branch; the first successful push and PR normally wins, while another worker fails and must be stopped or retried. Review revisions have the same limitation. A collaborator with write, maintain, or admin permission can answer clarification or request revisions. PRs are drafts and Louibot never merges them.
 
 ### Starting an issue
 
@@ -134,7 +135,7 @@ The host controller keeps GitHub and model credentials out of the Docker sandbox
 
 The sandbox has internet access so projects can install dependencies and fetch documentation. That also means an agent can send repository data to external services. Docker is a containment boundary for this local tool, not a complete data-loss prevention system. Review the repository and network policy before using Louibot with sensitive code.
 
-The MVP runs one coding job at a time. GitHub and Docker failures are persisted for inspection and retry, but crash recovery around external publication side effects remains intentionally conservative. The bot does not merge PRs, create issues, or perform independent code review.
+The default runs one coding job at a time. Set `agent.maxConcurrentJobs` above one only when the host has enough Docker CPU and memory for multiple sandboxes; each job reserves its own model budget. GitHub and Docker failures are persisted for inspection and retry, but crash recovery around external publication side effects remains intentionally conservative. The bot does not merge PRs, create issues, or perform independent code review.
 
 Format source, tests, and maintained scripts with `npm run format`; verify style with `npm run format:check`.
 

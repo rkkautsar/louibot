@@ -234,6 +234,28 @@ type WorkflowGraph = ReturnType<typeof workflow>;
 type WorkflowOptions = Parameters<WorkflowGraph["getState"]>[0];
 type WorkflowSnapshot = Awaited<ReturnType<WorkflowGraph["getState"]>>;
 
+export async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  run: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      await run(items[index]);
+    }
+  };
+  const results = await Promise.allSettled(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+  const failure = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failure) throw failure.reason;
+}
+
 function invocationOptions(job: Job, signal: AbortSignal): WorkflowOptions {
   return {
     configurable: { thread_id: `issue-${job.issue}` },
@@ -360,7 +382,6 @@ async function processIssue(
   config: Config,
   store: Store,
   github: GitHub,
-  graph: WorkflowGraph,
   job: Job,
   signal: AbortSignal,
 ): Promise<void> {
@@ -380,8 +401,10 @@ async function processIssue(
   )
     return;
 
+  if (signal.aborted || store.stopped(job.issue)) return;
   const options = invocationOptions(job, signal);
   try {
+    const graph = workflow(root, config, store, github, signal);
     const snapshot = await graph.getState(options);
     const isRetry = job.retryRequested === true;
     if (isRetry)
@@ -432,10 +455,47 @@ export async function tick(
     config.endpoint ? process.env[config.endpoint.apiKeyEnv] : undefined,
   );
   const github = githubClient ?? new GitHub(config.repository);
-  const graph = workflow(root, config, store, github, signal);
   await claimImplementationRequests(store, github);
-  for (const job of store.all()) {
-    if (signal.aborted) return;
-    await processIssue(root, config, store, github, graph, job, signal);
+  const jobs = store.all();
+  if (!jobs.length || signal.aborted) return;
+
+  const active = new Map<number, AbortController>();
+  const abortAll = () => {
+    for (const controller of active.values()) controller.abort();
+  };
+  const stopMonitor = setInterval(() => {
+    for (const [issue, controller] of active) {
+      if (store.stopped(issue)) controller.abort();
+    }
+  }, 250);
+  signal.addEventListener("abort", abortAll, { once: true });
+
+  try {
+    await runWithConcurrency(
+      jobs,
+      config.agent.maxConcurrentJobs,
+      async (job) => {
+        if (signal.aborted) return;
+        const controller = new AbortController();
+        active.set(job.issue, controller);
+        if (store.stopped(job.issue)) controller.abort();
+        try {
+          await processIssue(
+            root,
+            config,
+            store,
+            github,
+            job,
+            controller.signal,
+          );
+        } finally {
+          active.delete(job.issue);
+        }
+      },
+    );
+  } finally {
+    clearInterval(stopMonitor);
+    signal.removeEventListener("abort", abortAll);
+    abortAll();
   }
 }
