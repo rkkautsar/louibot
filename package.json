@@ -2,7 +2,14 @@
   "name": "louibot",
   "version": "0.1.0",
   "description": "A local-first GitHub issue implementer that opens draft pull requests.",
-  "private": true,
+  "keywords": [
+    "github",
+    "coding-agent",
+    "langchain",
+    "langgraph",
+    "docker",
+    "cli"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -12,14 +19,27 @@
     "url": "https://github.com/rkkautsar/louibot/issues"
   },
   "homepage": "https://github.com/rkkautsar/louibot#readme",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CONTRIBUTING.md",
+    "SECURITY.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "bin": {
     "louibot": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
+    "clean": "node scripts/clean-dist.mjs",
     "test": "node --import tsx --test test/*.test.ts",
     "dev": "tsx src/cli.ts",
+    "prepack": "npm run clean && npm run build",
+    "prepublishOnly": "npm run format:check && npm test",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.mjs\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.mjs\""
   },

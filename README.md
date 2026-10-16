@@ -4,17 +4,43 @@ Locally Orchestrated Issue Implementer Bot. Assign an issue. Get a draft PR.
 
 Louibot runs the coding agent locally, uses a disposable Docker sandbox for shell access, and uses the GitHub CLI for collaboration. It creates draft pull requests and never merges them.
 
+## Install
+
+After publishing a release, install the CLI globally or run it without a global install:
+
+```sh
+npm install --global louibot
+louibot --help
+
+# Or run the published version on demand.
+npx louibot --help
+```
+
+The machine running Louibot still needs Node.js 22+, GitHub CLI, Docker, and a host environment variable for the selected model provider.
+
+### Publishing
+
+The package is published as [`louibot`](https://www.npmjs.com/package/louibot). The first release is bootstrapped once by a maintainer with npm authentication:
+
+```sh
+npm login
+npm publish --access public
+```
+
+Then configure npm Trusted Publishing for the `rkkautsar/louibot` repository and `.github/workflows/publish.yml`. Future releases use the repository workflow: bump the package version, push the commit, and publish a GitHub release for that version. The workflow reruns validation and publishes with short-lived OIDC credentials and npm provenance; no npm token is stored in GitHub.
+
+See npm's [Trusted Publishing documentation](https://docs.npmjs.com/trusted-publishers/) for the one-time setup.
+
 ## Setup
 
 Linux/WSL, Node.js 22+, GitHub CLI (`gh`), and Docker are required. Run these commands from the root of the GitHub checkout you want Louibot to modify; its `origin` must point to GitHub.
 
 ```sh
-npm ci
-npm run build
-node dist/cli.js init --model openai/YOUR_MODEL --input-price 1 --output-price 4
-# Authenticate with `gh auth login` and set the model API key on the host.
+gh auth login
+# Set the model API key on the host.
+louibot init --model openai/YOUR_MODEL --input-price 1 --output-price 4
 docker pull node:22
-node dist/cli.js start
+louibot start
 ```
 
 Prices above are illustrative USD per million tokens. Set actual provider rates, including any applicable surcharges. The controller reserves a conservative estimated maximum before each call; reported cost is reserved spend, not billing reconciliation. Configuration lives in `.louibot/config.yaml`; never commit that directory.
@@ -22,10 +48,10 @@ Prices above are illustrative USD per million tokens. Set actual provider rates,
 Verify authentication with `gh auth status` before starting. Use the following commands for operations and recovery:
 
 ```sh
-node dist/cli.js status
-node dist/cli.js logs <issue> --follow
-node dist/cli.js stop <issue>
-node dist/cli.js retry <issue>
+louibot status
+louibot logs <issue> --follow
+louibot stop <issue>
+louibot retry <issue>
 ```
 
 Cancellation preserves state. `retry` requeues failed, blocked, or stopped jobs with their workspace, conversation, processed events, and spending reservation retained. Correct the underlying failure or update the issue/configuration before retrying; retries do not reset the spending budget.

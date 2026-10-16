@@ -1,0 +1,29 @@
+name: Publish package
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.14.0
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@11.5.1
+      - run: npm ci
+      - name: Verify release version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: test "$RELEASE_TAG" = "v$(node -p \"require('./package.json').version\")"
+      - run: npm run format:check
+      - run: npm run build
+      - run: npm test
+      - run: npm publish --access public
