@@ -69,14 +69,52 @@ test("sync preserves protected files and never follows host symlinks", async () 
   const outside = join(root, "outside");
   await mkdir(outside);
   await writeFile(join(outside, "sentinel"), "outside data");
-  await writeFile(join(worktree, ".env"), "keep secret");
+  const protectedFiles = [
+    ".env",
+    ".npmrc",
+    ".netrc",
+    ".pypirc",
+    ".git-credentials",
+    "credentials.json",
+    "secrets.json",
+    "application_default_credentials.json",
+  ];
+  for (const file of protectedFiles)
+    await writeFile(join(worktree, file), `keep ${file}`);
+  await mkdir(join(worktree, ".config", "gcloud"), { recursive: true });
+  await writeFile(
+    join(worktree, ".config", "gcloud", "application_default_credentials.json"),
+    "keep gcloud credentials",
+  );
+  await mkdir(join(worktree, ".docker"));
+  await writeFile(
+    join(worktree, ".docker", "config.json"),
+    "keep docker credentials",
+  );
   await writeFile(join(worktree, "remove.txt"), "remove");
   await symlink(outside, join(worktree, "linked"));
   await writeFile(join(stage, "updated.txt"), "safe");
 
   await syncWorkspaceFromStage(stage, worktree);
 
-  assert.equal(await readFile(join(worktree, ".env"), "utf8"), "keep secret");
+  for (const file of protectedFiles)
+    assert.equal(await readFile(join(worktree, file), "utf8"), `keep ${file}`);
+  assert.equal(
+    await readFile(
+      join(
+        worktree,
+        ".config",
+        "gcloud",
+        "application_default_credentials.json",
+      ),
+      "utf8",
+    ),
+    "keep gcloud credentials",
+  );
+  assert.equal(
+    await readFile(join(worktree, ".docker", "config.json"), "utf8"),
+    "keep docker credentials",
+  );
   assert.equal(
     await readFile(join(outside, "sentinel"), "utf8"),
     "outside data",

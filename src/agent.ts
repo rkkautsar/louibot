@@ -143,6 +143,9 @@ export async function code(
     if (result.status === "done") {
       const validation = await validate(config, job.worktree, sandbox, signal);
       if (validation) result.tests = `Controller validation:\n${validation}`;
+      else {
+        result.tests = `No controller validation commands discovered. Agent-reported results:\n${result.tests}`;
+      }
     }
     await sandbox.finish();
     return result;

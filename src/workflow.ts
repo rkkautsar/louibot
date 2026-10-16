@@ -345,7 +345,7 @@ async function closeFinishedPullRequest(
   const pullRequest = await github.pr(job.pr);
   if (pullRequest.state.toLowerCase() !== "closed" && !pullRequest.mergedAt)
     return false;
-  await cleanup(root, job.worktree, job.branch);
+  await cleanup(root, job.worktree);
   job.status = "done";
   job.outcome = pullRequest.mergedAt ? "merged" : "closed";
   store.save(job);

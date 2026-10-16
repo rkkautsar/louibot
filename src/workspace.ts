@@ -73,11 +73,17 @@ export async function prepare(
 }
 
 function secretPath(path: string): boolean {
-  const name = path.split(/[\\/]/).at(-1) ?? "";
+  const normalized = path.split(/[\\/]/).join("/");
+  const name = normalized.split("/").at(-1) ?? "";
   return (
     /^\.env(?:\.|$)/i.test(name) ||
+    /^(?:\.npmrc|\.netrc|\.pypirc|\.git-credentials|credentials(?:\.json)?|secrets\.json|application_default_credentials\.json)$/i.test(
+      name,
+    ) ||
     /^(?:id_(?:rsa|dsa|ecdsa|ed25519)|.*\.(?:pem|key|p12|pfx))$/i.test(name) ||
-    /(?:^|\/)(?:\.aws|\.ssh|\.gnupg)(?:\/|$)/i.test(path)
+    /(?:^|\/)(?:\.aws|\.ssh|\.gnupg|\.config\/gcloud|\.azure|\.kube|\.docker|\.terraform\.d)(?:\/|$)/i.test(
+      normalized,
+    )
   );
 }
 
@@ -227,12 +233,26 @@ export class Sandbox {
       await this.docker([
         "run",
         "--rm",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--network",
+        "none",
+        "--memory",
+        "64m",
+        "--cpus",
+        "0.25",
+        "--pids-limit",
+        "64",
         "--mount",
         `type=volume,source=${this.cacheVolume},destination=/cache`,
         "--user",
         "0:0",
-        this.image,
+        "--entrypoint",
         "sh",
+        this.image,
         "-lc",
         "chmod 0777 /cache",
       ]);
@@ -282,8 +302,9 @@ export class Sandbox {
         "MAVEN_CONFIG=/cache/maven",
         "--tmpfs",
         "/tmp:rw,nosuid,nodev,size=64m",
-        this.image,
+        "--entrypoint",
         "sh",
+        this.image,
         "-c",
         "while :; do sleep 3600; done",
       ]);
@@ -391,11 +412,7 @@ export class Sandbox {
   }
 }
 
-export async function cleanup(
-  root: string,
-  worktree: string,
-  _branch: string,
-): Promise<void> {
+export async function cleanup(root: string, worktree: string): Promise<void> {
   const target = resolve(worktree);
   const rootPath = resolve(root);
   const rel = relative(rootPath, target);

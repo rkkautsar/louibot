@@ -33,9 +33,9 @@ async function devcontainerImage(root: string): Promise<string | undefined> {
   ];
   for (const path of candidates) {
     try {
-      // Dev container files are JSON with optional comments and trailing
-      // commas. The image field is intentionally extracted without executing
-      // or evaluating the configuration.
+      // Recognize a direct quoted image field without executing or evaluating
+      // the devcontainer configuration. Full JSONC features are intentionally
+      // outside this small discovery heuristic.
       const text = await readFile(path, "utf8");
       const image = text.match(/\"image\"\s*:\s*\"([^\"]+)\"/)?.[1];
       if (image) return image;
