@@ -6,20 +6,29 @@ Louibot runs the coding agent locally, uses a disposable Docker sandbox for shel
 
 ## Setup
 
-Linux/WSL, Node.js 22+, GitHub CLI (`gh`), and Docker are required.
+Linux/WSL, Node.js 22+, GitHub CLI (`gh`), and Docker are required. Run these commands from the root of the GitHub checkout you want Louibot to modify; its `origin` must point to GitHub.
 
 ```sh
 npm ci
 npm run build
 node dist/cli.js init --model openai/YOUR_MODEL --input-price 1 --output-price 4
-# Run `gh auth login` first. Set OPENAI_API_KEY or ANTHROPIC_API_KEY on the host.
+# Authenticate with `gh auth login` and set the model API key on the host.
 docker pull node:22
 node dist/cli.js start
 ```
 
 Prices above are illustrative USD per million tokens. Set actual provider rates, including any applicable surcharges. The controller reserves a conservative estimated maximum before each call; reported cost is reserved spend, not billing reconciliation. Configuration lives in `.louibot/config.yaml`; never commit that directory.
 
-Use `status`, `logs <issue> --follow`, and `stop <issue>` for visibility and cancellation. Cancellation preserves state. Use `retry <issue>` to requeue failed, blocked, or stopped jobs with their workspace, conversation, processed events, and spending reservation retained. Correct the underlying failure or update the issue/configuration before retrying; retries do not reset the spending budget.
+Verify authentication with `gh auth status` before starting. Use the following commands for operations and recovery:
+
+```sh
+node dist/cli.js status
+node dist/cli.js logs <issue> --follow
+node dist/cli.js stop <issue>
+node dist/cli.js retry <issue>
+```
+
+Cancellation preserves state. `retry` requeues failed, blocked, or stopped jobs with their workspace, conversation, processed events, and spending reservation retained. Correct the underlying failure or update the issue/configuration before retrying; retries do not reset the spending budget.
 
 ## OpenAI-compatible providers
 
@@ -30,13 +39,37 @@ For example, replace the model in this configuration with your provider's suppor
 ```yaml
 model: openai-compatible/YOUR_MODEL_ID
 endpoint:
-  baseUrl: https://api.deepseek.com
-  apiKeyEnv: DEEPSEEK_API_KEY
+  baseUrl: https://api.example.com/v1
+  apiKeyEnv: PROVIDER_API_KEY
 ```
 
-DeepSeek documents that base URL in its [API documentation](https://api-docs.deepseek.com/). For OpenCode Go models using Chat Completions, set `baseUrl: https://opencode.ai/inference/go/openai/v1` and `apiKeyEnv: OPENCODE_API_KEY`; select a compatible model from the [Go endpoint table](https://opencode.ai/v2/docs/console/go/). Some Go models use different API protocols and cannot use this adapter. Optional `endpoint.reasoningEffort` and `endpoint.tokenLimitParameter` support provider-specific request settings; compatibility must be checked for the chosen model.
+Some providers need `endpoint.reasoningEffort` or `endpoint.tokenLimitParameter`; check the provider's Chat Completions documentation before configuring those optional fields.
 
-Custom transport and tool-call parsing are tested with mocked responses.
+### Configuration
+
+`init` writes `.louibot/config.yaml`. The generated file can be edited for polling, labels, model limits, and the sandbox image:
+
+```yaml
+repository: owner/repository
+model: openai/YOUR_MODEL
+github:
+  issueLabel: louibot:ready
+  blockedLabel: louibot:blocked
+  doneLabel: louibot:done
+  pollIntervalSeconds: 30
+agent:
+  maxSteps: 60
+  maxCostUsd: 3
+  maxInputTokens: 32000
+  maxOutputTokens: 4096
+  inputUsdPerMillion: 1
+  outputUsdPerMillion: 4
+sandbox:
+  image: node:22
+  commandTimeoutSeconds: 120
+```
+
+OpenAI and Anthropic providers read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` respectively unless a compatible endpoint specifies another host environment variable. Credentials stay on the host and are never written into this file or passed to Docker.
 
 ## Design
 
@@ -56,10 +89,7 @@ Review the draft PR normally, including inline comments, and submit the review. 
 
 Louibot checks that the command author is authorized, reads unresolved review threads and submitted review summaries from authorized collaborators, resumes the same conversation/workspace, and pushes to the existing branch. The command is processed once; add another `@louibot revise` comment for a later revision. If no authorized review feedback is open, Louibot records that fact and does not invent a change. Use `retry` to recover failed or stopped jobs.
 
-
-Sandboxes use Docker bridge networking so commands can install dependencies and fetch documentation through the existing shell tool. A prebuilt image with common dependencies can reduce setup time; configure `sandbox.image` for your repository. No browser tool is required for the MVP. Writable temporary home and npm cache directories support installation under the sandbox's unprivileged user.
-
-Sandboxes have no host credentials, Docker socket, or host Git metadata. Internet access also permits outbound data transfer and may reach services accessible from the Docker network; it is not an egress security boundary. Common credential files are excluded from the sandbox copy; secrets embedded in arbitrary repository files still require removal from the repository. Only deterministic host code commits, pushes, and creates PRs.
+Sandboxes use Docker bridge networking so commands can install dependencies and fetch documentation through the existing shell tool. A prebuilt image with common dependencies can reduce setup time; configure `sandbox.image` for your repository. Writable temporary home and npm cache directories support installation under the sandbox's unprivileged user. The MVP does not provide a browser tool.
 
 ## Validation
 
@@ -70,7 +100,7 @@ npm test
 
 Run the live Docker sandbox smoke test with `node scripts/check-sandbox.mjs` after building. It checks configured resource limits, excluded host credentials and Git metadata, npm installation over the network, workspace synchronization, and container/staging cleanup. It pulls `node:22` if necessary and removes its temporary workspace afterward.
 
-The repository's CI runs formatting, type checking, tests, and dependency auditing. No PR is automatically merged.
+The repository's CI runs formatting, type checking, tests, and dependency auditing.
 
 ## Safety and known limits
 
