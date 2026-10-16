@@ -8,6 +8,7 @@ export interface Job {
   branch: string;
   worktree: string;
   revision: number;
+  attempt?: number;
   pr?: number;
   model?: string;
   cost: number;

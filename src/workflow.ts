@@ -438,34 +438,66 @@ export async function runWithConcurrency<T>(
 
 function invocationOptions(job: Job, signal: AbortSignal): WorkflowOptions {
   return {
-    configurable: { thread_id: `issue-${job.issue}` },
+    configurable: {
+      thread_id: `issue-${job.issue}-attempt-${job.attempt ?? 1}`,
+    },
     signal,
     recursionLimit: 100,
   };
 }
 
-async function claimImplementationRequests(
+export async function claimImplementationRequests(
   store: Store,
   github: GitHub,
   config: Config,
 ) {
   for (const request of await github.implementationRequests()) {
     const issue = request.issue;
-    store.claim({
+    const existing = store.get(issue.number);
+    if (!existing) {
+      store.claim({
+        ...issue,
+        issue: issue.number,
+        status: "queued",
+        branch: `louibot/issue-${issue.number}`,
+        worktree: `${store.dir}/workspaces/${issue.number}`,
+        revision: 0,
+        attempt: 1,
+        model: config.model,
+        cost: 0,
+        codingSeconds: 0,
+        last: new Date().toISOString(),
+        events: [`implement:${request.commentId}`],
+        feedback: "",
+        rounds: 0,
+      });
+      continue;
+    }
+    if (existing.status !== "done" || existing.outcome !== "closed") continue;
+    const attempt = (existing.attempt ?? 1) + 1;
+    store.save({
+      ...existing,
       ...issue,
       issue: issue.number,
       status: "queued",
-      branch: `louibot/issue-${issue.number}`,
-      worktree: `${store.dir}/workspaces/${issue.number}`,
+      branch: `louibot/issue-${issue.number}-retry-${attempt}`,
+      worktree: `${store.dir}/workspaces/${issue.number}-retry-${attempt}`,
       revision: 0,
+      attempt,
+      pr: undefined,
       model: config.model,
       cost: 0,
       codingSeconds: 0,
+      codingStartedAt: undefined,
       last: new Date().toISOString(),
-      events: [`implement:${request.commentId}`],
+      events: [...existing.events, `implement:${request.commentId}`],
       feedback: "",
       rounds: 0,
+      retryRequested: undefined,
+      error: undefined,
+      outcome: undefined,
     });
+    store.log(issue.number, "state", "queued");
   }
 }
 

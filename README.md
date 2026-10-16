@@ -96,6 +96,8 @@ One local worker runs up to `agent.maxConcurrentJobs` coding jobs in parallel; t
 
 Write the issue normally, then add a separate issue comment containing exactly `@louibot implement`. Louibot checks that the commenter has repository write, maintain, or admin permission before claiming the issue. The issue body remains the task specification; the command only starts the worker.
 
+If a draft PR is closed without merging, edit the issue with the clearer requirements and add another `@louibot implement` comment. Louibot starts a fresh attempt on a new retry branch and creates a new draft PR. The previous closed PR remains available for comparison. Use `louibot retry <issue>` for failed, blocked, or stopped jobs that do not have a closed PR.
+
 Louibot uses `louibot:active` while an issue is active, `louibot:blocked` while clarification or failure needs attention, and `louibot:done` after a merged PR. These labels are status indicators; comments trigger implementation and revision. A PR closed without merging removes worker lifecycle labels without marking the issue done. Unrelated labels are preserved. Configure these status labels with `github.issueLabel`, `github.blockedLabel`, and `github.doneLabel`.
 
 ### Pull request templates

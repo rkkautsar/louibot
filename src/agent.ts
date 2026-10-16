@@ -134,7 +134,9 @@ export async function code(
         ],
       },
       {
-        configurable: { thread_id: `issue-${job.issue}` },
+        configurable: {
+          thread_id: `issue-${job.issue}-attempt-${job.attempt ?? 1}`,
+        },
         recursionLimit: config.agent.maxSteps,
         signal,
       },
