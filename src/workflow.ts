@@ -394,6 +394,13 @@ async function processIssue(
     if (await closeFinishedPullRequest(root, job, config, store, github))
       return;
 
+    if (job.status === "publishing") {
+      // Publication side effects are idempotent: resume the pending node so a
+      // crash after push or PR creation cannot strand the job in this state.
+      await graph.invoke(snapshot.next.length ? null : { job }, options);
+      return;
+    }
+
     let resume: ResumeInput | undefined;
     if (job.status === "clarification") {
       resume = await clarificationReply(job, github);
