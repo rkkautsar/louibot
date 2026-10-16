@@ -11,7 +11,7 @@ const base = {
 test("GitHub phase labels have defaults", () => {
   const config = schema.parse(base);
   assert.deepEqual(config.github, {
-    issueLabel: "louibot:ready",
+    issueLabel: "louibot:active",
     blockedLabel: "louibot:blocked",
     doneLabel: "louibot:done",
     pollIntervalSeconds: 30,

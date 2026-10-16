@@ -28,13 +28,13 @@ export const schema = z
       .optional(),
     github: z
       .object({
-        issueLabel: z.string().default("louibot:ready"),
+        issueLabel: z.string().default("louibot:active"),
         blockedLabel: z.string().default("louibot:blocked"),
         doneLabel: z.string().default("louibot:done"),
         pollIntervalSeconds: z.number().min(5).default(30),
       })
       .default({
-        issueLabel: "louibot:ready",
+        issueLabel: "louibot:active",
         blockedLabel: "louibot:blocked",
         doneLabel: "louibot:done",
         pollIntervalSeconds: 30,

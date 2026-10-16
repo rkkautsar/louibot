@@ -233,7 +233,7 @@ test("repository reads the repository through the REST API", async () => {
 });
 
 const phaseLabels = {
-  issueLabel: "louibot:ready",
+  issueLabel: "louibot:active",
   blockedLabel: "louibot:blocked",
   doneLabel: "louibot:done",
 };

@@ -21,7 +21,7 @@ function job(status: JobStatus, outcome?: Job["outcome"]): Job {
   };
 }
 
-test("active and review states keep the ready issue label", () => {
+test("active and review states keep the active issue label", () => {
   for (const status of ["coding", "queued", "review"]) {
     assert.equal(issuePhase(job(status)), "ready", status);
   }

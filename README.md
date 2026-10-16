@@ -53,7 +53,7 @@ Some providers need `endpoint.reasoningEffort` or `endpoint.tokenLimitParameter`
 repository: owner/repository
 model: openai/YOUR_MODEL
 github:
-  issueLabel: louibot:ready
+  issueLabel: louibot:active
   blockedLabel: louibot:blocked
   doneLabel: louibot:done
   pollIntervalSeconds: 30
@@ -75,13 +75,13 @@ OpenAI and Anthropic providers read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` res
 
 `agent.ts` contains the fixed prompt, LangChain `createAgent`, one Docker shell tool, and model budget middleware. `workflow.ts` contains the outer LangGraph lifecycle, clarification/review interrupts, polling and reconciliation. `github.ts` owns GitHub mutations. `workspace.ts` owns worktrees and disposable sandboxes. `store.ts` stores minimal job metadata and redacted logs in SQLite/local files. Agent and lifecycle checkpoints have separate SQLite databases.
 
-One local worker runs coding jobs sequentially. A collaborator with write, maintain, or admin permission can answer clarification or request revisions. PRs are drafts and Louibot never merges them.
+One local worker runs coding jobs sequentially. Run only one Louibot coordinator for a repository: the worker lock protects a single checkout, but separate clones or machines have independent state and can claim the same comment. They may duplicate model work and race on the issue branch; the first successful push and PR normally wins, while another worker fails and must be stopped or retried. Review revisions have the same limitation. A collaborator with write, maintain, or admin permission can answer clarification or request revisions. PRs are drafts and Louibot never merges them.
 
 ### Starting an issue
 
 Write the issue normally, then add a separate issue comment containing exactly `@louibot implement`. Louibot checks that the commenter has repository write, maintain, or admin permission before claiming the issue. The issue body remains the task specification; the command only starts the worker.
 
-Louibot uses `louibot:ready` while an issue is active, `louibot:blocked` while clarification or failure needs attention, and `louibot:done` after a merged PR. A PR closed without merging removes worker lifecycle labels without marking the issue done. Unrelated labels are preserved. Configure these status labels with `github.issueLabel`, `github.blockedLabel`, and `github.doneLabel`.
+Louibot uses `louibot:active` while an issue is active, `louibot:blocked` while clarification or failure needs attention, and `louibot:done` after a merged PR. These labels are status indicators; comments trigger implementation and revision. A PR closed without merging removes worker lifecycle labels without marking the issue done. Unrelated labels are preserved. Configure these status labels with `github.issueLabel`, `github.blockedLabel`, and `github.doneLabel`.
 
 ### Requesting revisions
 
