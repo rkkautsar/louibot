@@ -33,6 +33,8 @@ export async function code(
     job.worktree,
     config.sandbox.commandTimeoutSeconds,
     (...args: unknown[]) => store.log(job.issue, "shell", args),
+    config.sandbox.network,
+    config.repository,
   );
   await sandbox.start();
   try {

@@ -52,8 +52,13 @@ export const schema = z
       .object({
         image: z.string().default("node:22"),
         commandTimeoutSeconds: z.number().positive().default(120),
+        network: z.enum(["bridge", "none"]).default("bridge"),
       })
-      .default({ image: "node:22", commandTimeoutSeconds: 120 }),
+      .default({
+        image: "node:22",
+        commandTimeoutSeconds: 120,
+        network: "bridge",
+      }),
   })
   .superRefine((config, context) => {
     if (config.model.startsWith("openai-compatible/") && !config.endpoint)

@@ -10,12 +10,13 @@ import {
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { Sandbox } from "../dist/workspace.js";
+import { cacheVolumeName, Sandbox } from "../dist/workspace.js";
 const parent = resolve(".louibot");
 await mkdir(parent, { recursive: true });
 const temp = await mkdtemp(`${parent}/smoke-`),
   worktree = `${temp}/workspace`;
 const id = `louibot-${createHash("sha256").update(worktree).digest("hex").slice(0, 20)}`;
+const cacheVolume = cacheVolumeName(worktree);
 const box = new Sandbox("node:22", worktree, 120);
 process.env.LOUIBOT_SMOKE_SECRET = "host-only-smoke-secret";
 try {
@@ -70,6 +71,11 @@ try {
   await box.dispose();
   try {
     execFileSync("docker", ["rm", "-f", id], { stdio: "ignore" });
+  } catch {}
+  try {
+    execFileSync("docker", ["volume", "rm", cacheVolume], {
+      stdio: "ignore",
+    });
   } catch {}
   delete process.env.LOUIBOT_SMOKE_SECRET;
   await rm(temp, { recursive: true, force: true });

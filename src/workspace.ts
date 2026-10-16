@@ -19,6 +19,15 @@ const execFileAsync = promisify(execFile);
 const MAX_OUTPUT = 1024 * 1024;
 const HOST_COMMAND_TIMEOUT = 120_000;
 
+export type SandboxNetwork = "bridge" | "none";
+
+export function cacheVolumeName(cacheKey: string): string {
+  return `louibot-npm-cache-${createHash("sha256")
+    .update(cacheKey)
+    .digest("hex")
+    .slice(0, 24)}`;
+}
+
 export async function git(
   root: string,
   args: string[],
@@ -179,9 +188,14 @@ export class Sandbox {
     private readonly worktree: string,
     private readonly timeoutSeconds: number,
     private readonly log: (message: string) => void = () => {},
+    private readonly network: SandboxNetwork = "bridge",
+    cacheKey = worktree,
   ) {
     this.id = `louibot-${createHash("sha256").update(resolve(worktree)).digest("hex").slice(0, 20)}`;
+    this.npmCacheVolume = cacheVolumeName(cacheKey);
   }
+
+  private readonly npmCacheVolume: string;
 
   async start(): Promise<void> {
     if (this.started) return;
@@ -208,6 +222,20 @@ export class Sandbox {
       const uid = hostUid === 0 ? 65534 : hostUid;
       const gid = hostUid === 0 ? 65534 : hostGid;
       await this.docker(["rm", "-f", this.id]).catch(() => {});
+      // Docker creates named volumes as root-owned directories. Prepare the
+      // cache once so the sandbox can use it as its unprivileged user.
+      await this.docker([
+        "run",
+        "--rm",
+        "--mount",
+        `type=volume,source=${this.npmCacheVolume},destination=/npm-cache`,
+        "--user",
+        "0:0",
+        this.image,
+        "sh",
+        "-lc",
+        "chmod 0777 /npm-cache",
+      ]);
       await this.docker([
         "run",
         "-d",
@@ -229,13 +257,15 @@ export class Sandbox {
         "--pids-limit",
         "256",
         "--network",
-        "bridge",
+        this.network,
+        "--mount",
+        `type=volume,source=${this.npmCacheVolume},destination=/npm-cache`,
         "--user",
         `${uid}:${gid}`,
         "--env",
         "HOME=/tmp",
         "--env",
-        "NPM_CONFIG_CACHE=/tmp/npm-cache",
+        "NPM_CONFIG_CACHE=/npm-cache",
         "--tmpfs",
         "/tmp:rw,nosuid,nodev,size=64m",
         this.image,

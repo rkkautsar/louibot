@@ -16,6 +16,11 @@ test("GitHub phase labels have defaults", () => {
     doneLabel: "louibot:done",
     pollIntervalSeconds: 30,
   });
+  assert.deepEqual(config.sandbox, {
+    image: "node:22",
+    commandTimeoutSeconds: 120,
+    network: "bridge",
+  });
 });
 
 test("parallel job limit defaults to one and is bounded", () => {
@@ -51,4 +56,20 @@ test("GitHub label names can be configured", () => {
     doneLabel: "team:shipped",
     pollIntervalSeconds: 45,
   });
+});
+
+test("sandbox network mode can disable internet access", () => {
+  assert.equal(
+    schema.parse({
+      ...base,
+      sandbox: { network: "none" },
+    }).sandbox.network,
+    "none",
+  );
+  assert.throws(() =>
+    schema.parse({
+      ...base,
+      sandbox: { network: "host" },
+    }),
+  );
 });

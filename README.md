@@ -73,7 +73,7 @@ Some providers need `endpoint.reasoningEffort` or `endpoint.tokenLimitParameter`
 
 ### Configuration
 
-`init` writes `.louibot/config.yaml`. The generated file can be edited for polling, labels, model limits, and the sandbox image:
+`init` writes `.louibot/config.yaml`. The generated file can be edited for polling, labels, model limits, and sandbox settings:
 
 ```yaml
 repository: owner/repository
@@ -94,6 +94,7 @@ agent:
 sandbox:
   image: node:22
   commandTimeoutSeconds: 120
+  network: bridge
 ```
 
 OpenAI and Anthropic providers read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` respectively unless a compatible endpoint specifies another host environment variable. Credentials stay on the host and are never written into this file or passed to Docker.
@@ -116,7 +117,9 @@ Review the draft PR normally, including inline comments, and submit the review. 
 
 Louibot checks that the command author is authorized, reads unresolved review threads and submitted review summaries from authorized collaborators, resumes the same conversation/workspace, and pushes to the existing branch. The command is processed once; add another `@louibot revise` comment for a later revision. If no authorized review feedback is open, Louibot records that fact and does not invent a change. Use `retry` to recover failed or stopped jobs.
 
-Sandboxes use Docker bridge networking so commands can install dependencies and fetch documentation through the existing shell tool. A prebuilt image with common dependencies can reduce setup time; configure `sandbox.image` for your repository. Writable temporary home and npm cache directories support installation under the sandbox's unprivileged user. The MVP does not provide a browser tool.
+Sandboxes use Docker bridge networking by default so commands can install dependencies and fetch documentation through the existing shell tool. Set `sandbox.network` to `none` when a repository does not need internet access. A prebuilt image with common dependencies can reduce setup time; configure `sandbox.image` for your repository.
+
+Louibot mounts a Docker-managed named npm cache per repository. It persists package tarballs across disposable containers and issue workspaces without mounting the host's npm directory, which may contain registry credentials. `node_modules` remains workspace-specific because native dependencies and package trees can differ between branches. The MVP does not provide a browser tool.
 
 ## Validation
 
@@ -133,7 +136,7 @@ The repository's CI runs formatting, type checking, tests, and dependency auditi
 
 The host controller keeps GitHub and model credentials out of the Docker sandbox. The sandbox drops Linux capabilities, runs as an unprivileged user, limits memory, CPU, processes, output, and command time, and excludes common credential files and Git metadata from the staged workspace.
 
-The sandbox has internet access so projects can install dependencies and fetch documentation. That also means an agent can send repository data to external services. Docker is a containment boundary for this local tool, not a complete data-loss prevention system. Review the repository and network policy before using Louibot with sensitive code.
+The sandbox has internet access when `sandbox.network` is `bridge`, so projects can install dependencies and fetch documentation. That also means an agent can send repository data to external services. Use `none` for offline jobs when practical. Docker is a containment boundary for this local tool, not a complete data-loss prevention system. Review the repository and network policy before using Louibot with sensitive code.
 
 The default runs one coding job at a time. Set `agent.maxConcurrentJobs` above one only when the host has enough Docker CPU and memory for multiple sandboxes; each job reserves its own model budget. GitHub and Docker failures are persisted for inspection and retry, but crash recovery around external publication side effects remains intentionally conservative. The bot does not merge PRs, create issues, or perform independent code review.
 
