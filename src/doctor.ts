@@ -71,8 +71,12 @@ function checks(
       required: true,
       run: async () => {
         const remote = await git(root, ["remote", "get-url", "origin"]);
-        if (!remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/))
-          throw new Error("origin is not a GitHub repository");
+        const match = remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+        if (!match) throw new Error("origin is not a GitHub repository");
+        if (match[1] !== repositoryConfig.repository)
+          throw new Error(
+            `origin is ${match[1]}, configured repository is ${repositoryConfig.repository}`,
+          );
         return "GitHub remote found";
       },
     },
