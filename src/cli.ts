@@ -129,7 +129,7 @@ cli
 async function startWorker() {
   const repositoryConfig = config(repositoryRoot),
     store = new Store(stateDirectory),
-    lockPath = `${stateDirectory}/worker.lockPath`;
+    lockPath = `${stateDirectory}/worker.lock`;
   try {
     const lockDescriptor = openSync(lockPath, "wx", 0o600);
     writeFileSync(lockDescriptor, String(process.pid));
@@ -140,7 +140,7 @@ async function startWorker() {
       process.kill(workerPid, 0);
     } catch {
       unlinkSync(lockPath);
-      throw new Error("Removed stale worker lockPath; run start again");
+      throw new Error("Removed stale worker lock; run start again");
     }
     throw new Error(`Worker already running (PID ${workerPid})`);
   }

@@ -6,7 +6,7 @@ Louibot runs the coding agent locally, uses a disposable Docker sandbox for shel
 
 ## Install
 
-After publishing a release, install the CLI globally or run it without a global install:
+Install the CLI globally or run it without a global install:
 
 ```sh
 npm install --global louibot
@@ -15,21 +15,6 @@ louibot --help
 # Or run the published version on demand.
 npx louibot --help
 ```
-
-The machine running Louibot still needs Node.js 22+, GitHub CLI, Docker, and a host environment variable for the selected model provider.
-
-### Publishing
-
-The package is published as [`louibot`](https://www.npmjs.com/package/louibot). The first release is bootstrapped once by a maintainer with npm authentication:
-
-```sh
-npm login
-npm publish --access public
-```
-
-Then configure npm Trusted Publishing for the `rkkautsar/louibot` repository and `.github/workflows/publish.yml`. Future releases use the repository workflow: bump the package version, push the commit, and publish a GitHub release for that version. The workflow reruns validation and publishes with short-lived OIDC credentials and npm provenance; no npm token is stored in GitHub.
-
-See npm's [Trusted Publishing documentation](https://docs.npmjs.com/trusted-publishers/) for the one-time setup.
 
 ## Setup
 
@@ -105,11 +90,7 @@ An empty `validation.commands` list enables safe command discovery from reposito
 
 OpenAI and Anthropic providers read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` respectively unless a compatible endpoint specifies another host environment variable. Credentials stay on the host and are never written into this file or passed to Docker.
 
-## Design
-
-`agent.ts` contains the fixed prompt, LangChain `createAgent`, one Docker shell tool, and model budget middleware. `workflow.ts` contains the outer LangGraph lifecycle, clarification/review interrupts, polling and reconciliation. `github.ts` owns GitHub mutations. `workspace.ts` owns worktrees and disposable sandboxes. `store.ts` stores minimal job metadata and redacted logs in SQLite/local files. Agent and lifecycle checkpoints have separate SQLite databases.
-
-One local worker runs up to `agent.maxConcurrentJobs` coding jobs in parallel; the default is one. Each job has its own worktree, Docker container, checkpoint thread, cancellation signal, and spending limit. Run only one Louibot coordinator for a repository: the worker lock protects a single checkout, but separate clones or machines have independent state and can claim the same comment. They may duplicate model work and race on the issue branch; the first successful push and PR normally wins, while another worker fails and must be stopped or retried. Review revisions have the same limitation. A collaborator with write, maintain, or admin permission can answer clarification or request revisions. PRs are drafts and Louibot never merges them.
+One local worker runs up to `agent.maxConcurrentJobs` coding jobs in parallel; the default is one. Run only one Louibot coordinator for a repository because separate clones or machines can claim the same comment and race on the issue branch. A collaborator with write, maintain, or admin permission can answer clarification or request revisions. PRs are drafts and Louibot never merges them.
 
 ### Starting an issue
 
@@ -127,17 +108,6 @@ Sandboxes use Docker bridge networking by default so commands can install depend
 
 Louibot mounts a Docker-managed named build cache per repository. It exposes common cache locations for npm, pnpm, yarn, pip, Cargo, Go, Maven, and Gradle, so package downloads can survive disposable containers without mounting host credential directories. `node_modules` and other build outputs remain workspace-specific because native dependencies and package trees can differ between branches. Choose a repository-appropriate `sandbox.image` when the default Node image does not contain the required toolchain. The MVP does not provide a browser tool.
 
-## Validation
-
-```sh
-npm run build
-npm test
-```
-
-Run the live Docker sandbox smoke test with `node scripts/check-sandbox.mjs` after building. It checks configured resource limits, excluded host credentials and Git metadata, npm installation over the network, workspace synchronization, and container/staging cleanup. It pulls `node:22` if necessary and removes its temporary workspace afterward.
-
-The repository's CI runs formatting, type checking, tests, and dependency auditing.
-
 ## Safety and known limits
 
 The host controller keeps GitHub and model credentials out of the Docker sandbox. The sandbox drops Linux capabilities, runs as an unprivileged user, limits memory, CPU, processes, output, and command time, and excludes common credential files and Git metadata from the staged workspace.
@@ -145,7 +115,5 @@ The host controller keeps GitHub and model credentials out of the Docker sandbox
 The sandbox has internet access when `sandbox.network` is `bridge`, so projects can install dependencies and fetch documentation. That also means an agent can send repository data to external services. Use `none` for offline jobs when practical. Docker is a containment boundary for this local tool, not a complete data-loss prevention system. Review the repository and network policy before using Louibot with sensitive code.
 
 The default runs one coding job at a time. Set `agent.maxConcurrentJobs` above one only when the host has enough Docker CPU and memory for multiple sandboxes; each job reserves its own model budget. GitHub and Docker failures are persisted for inspection and retry, but crash recovery around external publication side effects remains intentionally conservative. The bot does not merge PRs, create issues, or perform independent code review.
-
-Format source, tests, and maintained scripts with `npm run format`; verify style with `npm run format:check`.
 
 Louibot is released under the [MIT License](LICENSE).
