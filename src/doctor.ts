@@ -108,7 +108,11 @@ function checks(
       label: "Sandbox image",
       required: true,
       run: async () => {
-        await command("docker", ["image", "inspect", image]);
+        try {
+          await command("docker", ["image", "inspect", image]);
+        } catch {
+          throw new Error(`${image} is not present; run docker pull ${image}`);
+        }
         return `${image} (${imageSource})`;
       },
     },

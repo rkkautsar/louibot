@@ -101,6 +101,8 @@ validation:
 
 `louibot doctor` checks GitHub access, Docker, the model key, the discovered sandbox image, and repository validation commands. `sandbox.image: auto` uses a directly referenced image from `.devcontainer/devcontainer.json` when available, then selects a common language image from repository files, and finally falls back to `node:22`. Set an explicit image when the repository needs a custom toolchain; Louibot does not build arbitrary Dockerfiles automatically.
 
+An empty `validation.commands` list enables safe command discovery from repository metadata. Add commands to that list to override discovery with the checks your project requires.
+
 OpenAI and Anthropic providers read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` respectively unless a compatible endpoint specifies another host environment variable. Credentials stay on the host and are never written into this file or passed to Docker.
 
 ## Design
