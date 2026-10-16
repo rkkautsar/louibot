@@ -69,8 +69,6 @@ sandbox:
   commandTimeoutSeconds: 120
 ```
 
-Existing configurations keep their current label names. Change `github.issueLabel` from `louibot:ready` to `louibot:active` manually if you want the new default naming.
-
 OpenAI and Anthropic providers read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` respectively unless a compatible endpoint specifies another host environment variable. Credentials stay on the host and are never written into this file or passed to Docker.
 
 ## Design
