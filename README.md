@@ -98,6 +98,10 @@ Write the issue normally, then add a separate issue comment containing exactly `
 
 Louibot uses `louibot:active` while an issue is active, `louibot:blocked` while clarification or failure needs attention, and `louibot:done` after a merged PR. These labels are status indicators; comments trigger implementation and revision. A PR closed without merging removes worker lifecycle labels without marking the issue done. Unrelated labels are preserved. Configure these status labels with `github.issueLabel`, `github.blockedLabel`, and `github.doneLabel`.
 
+### Pull request templates
+
+If the repository has a standard pull request template in `.github/`, the repository root, or `docs/`, Louibot preserves it at the top of the draft PR description. It appends a clearly marked implementation summary, collapsible validation output, and the issue reference below the template so existing checklists and prompts remain intact.
+
 ### Requesting revisions
 
 Review the draft PR normally, including inline comments, and submit the review. Then add a separate PR conversation comment containing exactly `@louibot revise`.

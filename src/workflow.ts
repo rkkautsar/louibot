@@ -6,6 +6,8 @@ import {
   interrupt,
   Command,
 } from "@langchain/langgraph";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import type { Config } from "./config.js";
 import { Store, type Job, type JobStatus } from "./store.js";
@@ -48,8 +50,9 @@ export function pullRequestBody(
   issue: number,
   summary: string,
   tests: string,
+  template?: string,
 ): string {
-  return [
+  const generated = [
     "## Implementation summary",
     "",
     summary.trim(),
@@ -66,6 +69,33 @@ export function pullRequestBody(
     "",
     `<!-- louibot:${issue} -->`,
   ].join("\n");
+  const preservedTemplate = template?.trim();
+  return preservedTemplate
+    ? `${preservedTemplate}\n\n---\n\n${generated}`
+    : generated;
+}
+
+export function readPullRequestTemplate(root: string): string | undefined {
+  const candidates = [
+    ".github/pull_request_template.md",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    "pull_request_template.md",
+    "PULL_REQUEST_TEMPLATE.md",
+    "docs/pull_request_template.md",
+    "docs/PULL_REQUEST_TEMPLATE.md",
+  ];
+  for (const relativePath of candidates) {
+    const path = join(root, relativePath);
+    if (existsSync(path)) return readFileSync(path, "utf8");
+  }
+  const directory = join(root, ".github", "PULL_REQUEST_TEMPLATE");
+  if (existsSync(directory)) {
+    const template = readdirSync(directory)
+      .filter((name) => name.toLowerCase().endsWith(".md"))
+      .sort()[0];
+    if (template) return readFileSync(join(directory, template), "utf8");
+  }
+  return undefined;
 }
 
 export function clarificationComment(questions: string[]): string {
@@ -197,7 +227,12 @@ async function publishChanges(
     (await github.createPR(
       publishingJob.branch,
       publishingJob.title,
-      pullRequestBody(publishingJob.issue, result.summary, result.tests),
+      pullRequestBody(
+        publishingJob.issue,
+        result.summary,
+        result.tests,
+        readPullRequestTemplate(publishingJob.worktree),
+      ),
     ));
   publishingJob.pr = pullRequest.number;
   if (job.pr !== undefined) {

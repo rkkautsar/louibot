@@ -102,7 +102,8 @@
             <h3>Point it at an issue</h3>
             <p>
               Write the issue normally. Add one exact comment:
-              <code>@louibot implement</code>.
+              <code>@louibot implement</code>. If a product decision is missing,
+              Louibot pauses and asks focused questions first.
             </p>
             <span class="card-line"></span>
           </article>
@@ -128,8 +129,9 @@
             <div class="card-number">04</div>
             <h3>You review the draft</h3>
             <p>
-              Louibot opens a draft PR. Submit inline feedback, then comment
-              <code>@louibot revise</code> to continue the same work.
+              Louibot preserves your repository PR template, adds its summary
+              and validation, and opens a draft. Submit inline feedback, then
+              comment <code>@louibot revise</code> to continue the same work.
             </p>
             <span class="card-line"></span>
           </article>
@@ -236,8 +238,9 @@ louibot start</code></pre>
             <p class="eyebrow">See the implementation</p>
             <h2>Everything is in the open.</h2>
             <p>
-              The worker, workflow, sandbox boundary, and tests are public. A
-              clean todo repository is ready for the first end-to-end run.
+              The worker, workflow, sandbox boundary, and tests are public. The
+              todo repository shows a clarification round and a review-driven
+              revision in real GitHub issues and draft PRs.
             </p>
             <div class="example-actions">
               <a
@@ -246,8 +249,12 @@ louibot start</code></pre>
                 >Open GitHub <span>↗</span></a
               ><a
                 class="text-link"
-                href="https://github.com/rkkautsar/louibot-todo-example/issues/1"
-                >View demo issue <span>↗</span></a
+                href="https://github.com/rkkautsar/louibot-todo-example/issues/3"
+                >View clarification issue <span>↗</span></a
+              ><a
+                class="text-link"
+                href="https://github.com/rkkautsar/louibot-todo-example/pull/4"
+                >View draft PR <span>↗</span></a
               >
             </div>
           </div>
