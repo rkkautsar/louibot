@@ -1,6 +1,6 @@
 # Louibot
 
-Locally Orchestrated Issue Implementer Bot. Assign an issue. Get a draft PR.
+Locally Orchestrated Issue Implementer Bot. Assign an issue. Get a draft PR. See [louibot.rakha.dev](https://louibot.rakha.dev) for the short tour.
 
 Louibot runs the coding agent locally, uses a disposable Docker sandbox for shell access, and uses the GitHub CLI for collaboration. It creates draft pull requests and never merges them.
 
