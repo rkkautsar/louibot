@@ -12,11 +12,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import {
+  cacheVolumeName,
   copyWorkspaceToStage,
   syncWorkspaceFromStage,
 } from "../src/workspace.js";
 
 const roots: string[] = [];
+
+test("cache volumes are stable and safe for repository identifiers", () => {
+  const first = cacheVolumeName("owner/repo");
+  assert.equal(first, cacheVolumeName("owner/repo"));
+  assert.notEqual(first, cacheVolumeName("other/repo"));
+  assert.match(first, /^louibot-build-cache-[a-f0-9]{24}$/);
+});
 
 async function fixture(): Promise<{
   root: string;

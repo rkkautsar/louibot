@@ -22,7 +22,7 @@ const HOST_COMMAND_TIMEOUT = 120_000;
 export type SandboxNetwork = "bridge" | "none";
 
 export function cacheVolumeName(cacheKey: string): string {
-  return `louibot-npm-cache-${createHash("sha256")
+  return `louibot-build-cache-${createHash("sha256")
     .update(cacheKey)
     .digest("hex")
     .slice(0, 24)}`;
@@ -192,10 +192,10 @@ export class Sandbox {
     cacheKey = worktree,
   ) {
     this.id = `louibot-${createHash("sha256").update(resolve(worktree)).digest("hex").slice(0, 20)}`;
-    this.npmCacheVolume = cacheVolumeName(cacheKey);
+    this.cacheVolume = cacheVolumeName(cacheKey);
   }
 
-  private readonly npmCacheVolume: string;
+  private readonly cacheVolume: string;
 
   async start(): Promise<void> {
     if (this.started) return;
@@ -228,13 +228,13 @@ export class Sandbox {
         "run",
         "--rm",
         "--mount",
-        `type=volume,source=${this.npmCacheVolume},destination=/npm-cache`,
+        `type=volume,source=${this.cacheVolume},destination=/cache`,
         "--user",
         "0:0",
         this.image,
         "sh",
         "-lc",
-        "chmod 0777 /npm-cache",
+        "chmod 0777 /cache",
       ]);
       await this.docker([
         "run",
@@ -259,13 +259,27 @@ export class Sandbox {
         "--network",
         this.network,
         "--mount",
-        `type=volume,source=${this.npmCacheVolume},destination=/npm-cache`,
+        `type=volume,source=${this.cacheVolume},destination=/cache`,
         "--user",
         `${uid}:${gid}`,
         "--env",
         "HOME=/tmp",
         "--env",
-        "NPM_CONFIG_CACHE=/npm-cache",
+        "XDG_CACHE_HOME=/cache/xdg",
+        "--env",
+        "NPM_CONFIG_CACHE=/cache/npm",
+        "--env",
+        "PIP_CACHE_DIR=/cache/pip",
+        "--env",
+        "CARGO_HOME=/cache/cargo",
+        "--env",
+        "GOMODCACHE=/cache/go-mod",
+        "--env",
+        "GOCACHE=/cache/go-build",
+        "--env",
+        "GRADLE_USER_HOME=/cache/gradle",
+        "--env",
+        "MAVEN_CONFIG=/cache/maven",
         "--tmpfs",
         "/tmp:rw,nosuid,nodev,size=64m",
         this.image,

@@ -119,7 +119,7 @@ Louibot checks that the command author is authorized, reads unresolved review th
 
 Sandboxes use Docker bridge networking by default so commands can install dependencies and fetch documentation through the existing shell tool. Set `sandbox.network` to `none` when a repository does not need internet access. A prebuilt image with common dependencies can reduce setup time; configure `sandbox.image` for your repository.
 
-Louibot mounts a Docker-managed named npm cache per repository. It persists package tarballs across disposable containers and issue workspaces without mounting the host's npm directory, which may contain registry credentials. `node_modules` remains workspace-specific because native dependencies and package trees can differ between branches. The MVP does not provide a browser tool.
+Louibot mounts a Docker-managed named build cache per repository. It exposes common cache locations for npm, pnpm, yarn, pip, Cargo, Go, Maven, and Gradle, so package downloads can survive disposable containers without mounting host credential directories. `node_modules` and other build outputs remain workspace-specific because native dependencies and package trees can differ between branches. Choose a repository-appropriate `sandbox.image` when the default Node image does not contain the required toolchain. The MVP does not provide a browser tool.
 
 ## Validation
 
