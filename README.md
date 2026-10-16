@@ -39,7 +39,7 @@ Linux/WSL, Node.js 22+, GitHub CLI (`gh`), and Docker are required. Run these co
 gh auth login
 # Set the model API key on the host.
 louibot init --model openai/YOUR_MODEL --input-price 1 --output-price 4
-docker pull node:22
+louibot doctor
 louibot start
 ```
 
@@ -92,10 +92,14 @@ agent:
   inputUsdPerMillion: 1
   outputUsdPerMillion: 4
 sandbox:
-  image: node:22
+  image: auto
   commandTimeoutSeconds: 120
   network: bridge
+validation:
+  commands: []
 ```
+
+`louibot doctor` checks GitHub access, Docker, the model key, the discovered sandbox image, and repository validation commands. `sandbox.image: auto` uses a directly referenced image from `.devcontainer/devcontainer.json` when available, then selects a common language image from repository files, and finally falls back to `node:22`. Set an explicit image when the repository needs a custom toolchain; Louibot does not build arbitrary Dockerfiles automatically.
 
 OpenAI and Anthropic providers read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` respectively unless a compatible endpoint specifies another host environment variable. Credentials stay on the host and are never written into this file or passed to Docker.
 

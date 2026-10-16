@@ -17,10 +17,11 @@ test("GitHub phase labels have defaults", () => {
     pollIntervalSeconds: 30,
   });
   assert.deepEqual(config.sandbox, {
-    image: "node:22",
+    image: "auto",
     commandTimeoutSeconds: 120,
     network: "bridge",
   });
+  assert.deepEqual(config.validation, { commands: [] });
 });
 
 test("parallel job limit defaults to one and is bounded", () => {

@@ -17,6 +17,7 @@ import { GitHub } from "./github.js";
 import { Store } from "./store.js";
 import { git } from "./workspace.js";
 import { tick } from "./workflow.js";
+import { runDoctor } from "./doctor.js";
 const cli = new Command()
   .name("louibot")
   .description("Assign an issue. Get a draft PR.");
@@ -66,10 +67,14 @@ async function initializeRepository(options: InitOptions) {
     flag: "wx",
   });
   console.log(
-    `Configured .louibot/config.yaml. Authenticate with gh auth login. Set ${repositoryConfig.endpoint?.apiKeyEnv ?? (repositoryConfig.model.startsWith("anthropic/") ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY")} in the host environment. Pre-pull the configured Docker image.`,
+    `Configured .louibot/config.yaml. Authenticate with gh auth login. Set ${repositoryConfig.endpoint?.apiKeyEnv ?? (repositoryConfig.model.startsWith("anthropic/") ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY")} in the host environment, then run louibot doctor.`,
   );
 }
 
+cli.command("doctor").action(async () => {
+  const healthy = await runDoctor(repositoryRoot, stateDirectory);
+  if (!healthy) process.exitCode = 1;
+});
 cli.command("status").action(() => {
   const store = new Store(stateDirectory);
   console.table(
