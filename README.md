@@ -128,7 +128,15 @@ Louibot is released under the [MIT License](LICENSE).
 
 ## Releasing
 
-CI verifies every push and pull request. To publish a new npm version, update the version with `npm version <version>`, push the commit and matching `v<version>` tag, and GitHub Actions publishes the package with npm trusted publishing after the checks pass:
+CI verifies every push and pull request. npm publishing uses trusted publishing, so the package maintainer must add one trusted publisher in the npm package settings first:
+
+- Provider: GitHub Actions
+- Organization or user: `rkkautsar`
+- Repository: `louibot`
+- Workflow filename: `publish.yml`
+- Environment: leave empty
+
+After that one-time setup, update the version with `npm version <version>`, push the commit and matching `v<version>` tag, and GitHub Actions publishes the package after the checks pass:
 
 ```sh
 npm version patch
