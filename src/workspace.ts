@@ -19,15 +19,18 @@ const execFileAsync = promisify(execFile);
 const MAX_OUTPUT = 1024 * 1024;
 export const MAX_SHELL_OUTPUT = 40_000;
 const HOST_COMMAND_TIMEOUT = 120_000;
+const SHELL_OUTPUT_MARKER =
+  "\n\n[output truncated by Louibot; showing the beginning and end]\n\n";
+
+function outputParts(): { head: number; tail: number } {
+  const available = MAX_SHELL_OUTPUT - SHELL_OUTPUT_MARKER.length;
+  return { head: Math.ceil(available / 2), tail: Math.floor(available / 2) };
+}
 
 export function truncateShellOutput(output: string): string {
   if (output.length <= MAX_SHELL_OUTPUT) return output;
-  const marker =
-    "\n\n[output truncated by Louibot; showing the beginning and end]\n\n";
-  const available = MAX_SHELL_OUTPUT - marker.length;
-  const head = Math.ceil(available / 2);
-  const tail = Math.floor(available / 2);
-  return `${output.slice(0, head)}${marker}${output.slice(-tail)}`;
+  const { head, tail } = outputParts();
+  return `${output.slice(0, head)}${SHELL_OUTPUT_MARKER}${output.slice(-tail)}`;
 }
 
 export type SandboxNetwork = "bridge" | "none";
@@ -334,6 +337,8 @@ export class Sandbox {
         stdio: ["ignore", "pipe", "pipe"],
       });
       let output = "";
+      let tail = "";
+      let truncated = false;
       let settled = false;
       const finish = (error?: Error) => {
         if (settled) return;
@@ -344,7 +349,20 @@ export class Sandbox {
         else resolvePromise(output);
       };
       const append = (chunk: Buffer) => {
-        output += chunk.toString("utf8");
+        const text = chunk.toString("utf8");
+        if (!truncated && output.length + text.length <= MAX_SHELL_OUTPUT) {
+          output += text;
+          return;
+        }
+        const { head, tail: tailLength } = outputParts();
+        if (!truncated) {
+          const combined = output + text;
+          output = combined.slice(0, head);
+          tail = combined.slice(-tailLength);
+          truncated = true;
+        } else {
+          tail = (tail + text).slice(-tailLength);
+        }
       };
       const stopContainer = () =>
         this.docker(["kill", this.id]).catch(() => "");
@@ -372,7 +390,7 @@ export class Sandbox {
       child.stderr.on("data", append);
       child.on("error", (error) => finish(error));
       child.on("close", (code) => {
-        output = truncateShellOutput(output);
+        if (truncated) output += `${SHELL_OUTPUT_MARKER}${tail}`;
         this.log(`Sandbox command exited with ${code}: ${command}\n${output}`);
         code === 0
           ? finish()
