@@ -14,7 +14,9 @@ import { afterEach, test } from "node:test";
 import {
   cacheVolumeName,
   copyWorkspaceToStage,
+  MAX_SHELL_OUTPUT,
   syncWorkspaceFromStage,
+  truncateShellOutput,
 } from "../src/workspace.js";
 
 const roots: string[] = [];
@@ -24,6 +26,15 @@ test("cache volumes are stable and safe for repository identifiers", () => {
   assert.equal(first, cacheVolumeName("owner/repo"));
   assert.notEqual(first, cacheVolumeName("other/repo"));
   assert.match(first, /^louibot-build-cache-[a-f0-9]{24}$/);
+});
+
+test("shell output keeps both the beginning and end when truncated", () => {
+  const output = `${"head ".repeat(10_000)}${"tail ".repeat(10_000)}`;
+  const truncated = truncateShellOutput(output);
+  assert.ok(truncated.length <= MAX_SHELL_OUTPUT);
+  assert.match(truncated, /^head /);
+  assert.match(truncated, /tail $/);
+  assert.match(truncated, /output truncated by Louibot/);
 });
 
 async function fixture(): Promise<{

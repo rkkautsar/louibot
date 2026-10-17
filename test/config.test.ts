@@ -22,6 +22,9 @@ test("GitHub phase labels have defaults", () => {
     network: "bridge",
   });
   assert.deepEqual(config.validation, { commands: [] });
+  assert.equal(config.agent.contextWindowTokens, 200000);
+  assert.equal(config.agent.maxInputTokens, 160000);
+  assert.equal(config.agent.maxOutputTokens, 32000);
 });
 
 test("parallel job limit defaults to one and is bounded", () => {

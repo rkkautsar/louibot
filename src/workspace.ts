@@ -17,7 +17,18 @@ import { createHash } from "node:crypto";
 
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT = 1024 * 1024;
+export const MAX_SHELL_OUTPUT = 40_000;
 const HOST_COMMAND_TIMEOUT = 120_000;
+
+export function truncateShellOutput(output: string): string {
+  if (output.length <= MAX_SHELL_OUTPUT) return output;
+  const marker =
+    "\n\n[output truncated by Louibot; showing the beginning and end]\n\n";
+  const available = MAX_SHELL_OUTPUT - marker.length;
+  const head = Math.ceil(available / 2);
+  const tail = Math.floor(available / 2);
+  return `${output.slice(0, head)}${marker}${output.slice(-tail)}`;
+}
 
 export type SandboxNetwork = "bridge" | "none";
 
@@ -333,8 +344,7 @@ export class Sandbox {
         else resolvePromise(output);
       };
       const append = (chunk: Buffer) => {
-        if (output.length < MAX_OUTPUT)
-          output += chunk.toString("utf8").slice(0, MAX_OUTPUT - output.length);
+        output += chunk.toString("utf8");
       };
       const stopContainer = () =>
         this.docker(["kill", this.id]).catch(() => "");
@@ -362,6 +372,7 @@ export class Sandbox {
       child.stderr.on("data", append);
       child.on("error", (error) => finish(error));
       child.on("close", (code) => {
+        output = truncateShellOutput(output);
         this.log(`Sandbox command exited with ${code}: ${command}\n${output}`);
         code === 0
           ? finish()

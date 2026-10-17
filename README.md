@@ -58,7 +58,7 @@ Some providers need `endpoint.reasoningEffort` or `endpoint.tokenLimitParameter`
 
 ### Configuration
 
-`init` writes `.louibot/config.yaml`. The generated file can be edited for polling, labels, model limits, and sandbox settings:
+`init` writes `.louibot/config.yaml`. The generated file can be edited for polling, labels, model limits, and sandbox settings. The token defaults reserve headroom inside a 200K context window; raise them only when the selected model and endpoint document larger limits:
 
 ```yaml
 repository: owner/repository
@@ -72,8 +72,9 @@ agent:
   maxConcurrentJobs: 1
   maxSteps: 60
   maxCostUsd: 3
-  maxInputTokens: 32000
-  maxOutputTokens: 4096
+  contextWindowTokens: 200000
+  maxInputTokens: 160000
+  maxOutputTokens: 32000
   inputUsdPerMillion: 0.1
   outputUsdPerMillion: 0.5
 sandbox:

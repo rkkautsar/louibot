@@ -18,6 +18,7 @@ const resultSchema = z.object({
 });
 export type Result = z.infer<typeof resultSchema>;
 const MAX_VALIDATION_OUTPUT = 24_000;
+const TOKEN_ESTIMATE_OVERHEAD = 4_096;
 
 async function validate(
   config: Config,
@@ -83,8 +84,17 @@ export async function code(
           throw new Error("Job stopped");
         // Reserve a worst-case call before sending it. Persist reservation even if provider fails.
         const serializedMessages = JSON.stringify(request.messages);
-        const estimatedInputTokens = serializedMessages.length + 4096;
-        if (estimatedInputTokens > config.agent.maxInputTokens)
+        const estimatedInputTokens =
+          Math.ceil(serializedMessages.length / 4) + TOKEN_ESTIMATE_OVERHEAD;
+        const availableInputTokens = Math.min(
+          config.agent.maxInputTokens,
+          config.agent.contextWindowTokens - config.agent.maxOutputTokens,
+        );
+        if (availableInputTokens <= 0)
+          throw new Error(
+            "Input budget is not available after reserving the configured output budget",
+          );
+        if (estimatedInputTokens > availableInputTokens)
           throw new Error("Input token budget exceeded");
         const reserve =
           (estimatedInputTokens * config.agent.inputUsdPerMillion) / 1e6 +
