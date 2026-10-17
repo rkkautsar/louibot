@@ -125,3 +125,12 @@ The sandbox has internet access when `sandbox.network` is `bridge`, so projects 
 The default runs one coding job at a time. Set `agent.maxConcurrentJobs` above one only when the host has enough Docker CPU and memory for multiple sandboxes; each job reserves its own model budget. GitHub and Docker failures are persisted for inspection and retry, but crash recovery around external publication side effects remains intentionally conservative. The bot does not merge PRs, create issues, or perform independent code review.
 
 Louibot is released under the [MIT License](LICENSE).
+
+## Releasing
+
+CI verifies every push and pull request. To publish a new npm version, update the version with `npm version <version>`, push the commit and matching `v<version>` tag, and GitHub Actions publishes the package with npm trusted publishing after the checks pass:
+
+```sh
+npm version patch
+git push origin main --follow-tags
+```
