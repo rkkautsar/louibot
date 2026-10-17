@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import {
   cacheVolumeName,
+  buildShellCaptureCommand,
   copyWorkspaceToStage,
   MAX_SHELL_OUTPUT,
   syncWorkspaceFromStage,
@@ -35,6 +36,15 @@ test("shell output keeps both the beginning and end when truncated", () => {
   assert.match(truncated, /^head /);
   assert.match(truncated, /tail $/);
   assert.match(truncated, /output truncated by Louibot/);
+});
+
+test("large shell output leaves an agent-readable sandbox file", () => {
+  const command = buildShellCaptureCommand("printf 'hello'", "/tmp/output.log");
+  assert.match(command, /eval/);
+  assert.match(command, /hello/);
+  assert.match(command, /\/tmp\/output\.log/);
+  assert.match(command, /ulimit -f/);
+  assert.match(command, /full output:/);
 });
 
 async function fixture(): Promise<{

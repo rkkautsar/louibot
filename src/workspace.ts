@@ -13,11 +13,12 @@ import {
   symlink,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT = 1024 * 1024;
 export const MAX_SHELL_OUTPUT = 40_000;
+const MAX_SHELL_FILE_BYTES = 8 * 1024 * 1024;
 const HOST_COMMAND_TIMEOUT = 120_000;
 const SHELL_OUTPUT_MARKER =
   "\n\n[output truncated by Louibot; showing the beginning and end]\n\n";
@@ -31,6 +32,37 @@ export function truncateShellOutput(output: string): string {
   if (output.length <= MAX_SHELL_OUTPUT) return output;
   const { head, tail } = outputParts();
   return `${output.slice(0, head)}${SHELL_OUTPUT_MARKER}${output.slice(-tail)}`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+export function buildShellCaptureCommand(
+  command: string,
+  outputPath: string,
+): string {
+  const marker = `\n\n[output truncated by Louibot; full output: ${outputPath}]\n\n`;
+  const available = MAX_SHELL_OUTPUT - marker.length;
+  const head = Math.ceil(available / 2);
+  const tail = Math.floor(available / 2);
+  return [
+    "set +e",
+    `ulimit -f ${Math.ceil(MAX_SHELL_FILE_BYTES / 512)} 2>/dev/null || true`,
+    `output_file=${shellQuote(outputPath)}`,
+    `eval ${shellQuote(command)} >\"$output_file\" 2>&1`,
+    "status=$?",
+    'bytes=$(wc -c <"$output_file")',
+    `if [ "$bytes" -gt ${MAX_SHELL_OUTPUT} ]; then`,
+    `  head -c ${head} "$output_file"`,
+    `  printf '%s' ${shellQuote(marker)}`,
+    `  tail -c ${tail} "$output_file"`,
+    "else",
+    '  cat "$output_file"',
+    '  rm -f "$output_file"',
+    "fi",
+    'exit "$status"',
+  ].join("\n");
 }
 
 export type SandboxNetwork = "bridge" | "none";
@@ -332,10 +364,19 @@ export class Sandbox {
     if (!this.started || this.disposed)
       throw new Error("Sandbox is not running");
     if (signal?.aborted) throw new Error("Sandbox command cancelled");
+    const outputPath = `/tmp/louibot-shell-${randomUUID()}.log`;
     return new Promise<string>((resolvePromise, rejectPromise) => {
-      const child = spawn("docker", ["exec", this.id, "sh", "-lc", command], {
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+      const child = spawn(
+        "docker",
+        [
+          "exec",
+          this.id,
+          "sh",
+          "-lc",
+          buildShellCaptureCommand(command, outputPath),
+        ],
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
       let output = "";
       let tail = "";
       let truncated = false;
