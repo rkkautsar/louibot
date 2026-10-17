@@ -1,18 +1,15 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import {
-  mkdirSync,
-  writeFileSync,
   readFileSync,
   openSync,
   closeSync,
   unlinkSync,
-  existsSync,
+  writeFileSync,
 } from "node:fs";
 import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { stringify } from "yaml";
-import { config, schema } from "./config.js";
+import { config, savedConfig } from "./config.js";
 import { knownPricing } from "./pricing.js";
 import { GitHub } from "./github.js";
 import { Store } from "./store.js";
@@ -24,69 +21,203 @@ const cli = new Command()
   .description("Assign an issue. Get a draft PR.");
 const repositoryRoot = process.cwd(),
   stateDirectory = resolve(repositoryRoot, ".louibot");
-cli
-  .command("init")
-  .requiredOption("--model <provider/model>")
-  .option("--base-url <url>", "OpenAI-compatible API base URL")
-  .option(
-    "--api-key-env <name>",
-    "Host environment variable containing the compatible API key",
-  )
-  .option("--input-price <usd>", "USD per million input tokens")
-  .option("--output-price <usd>", "USD per million output tokens")
-  .action(initializeRepository);
-
-interface InitOptions {
-  model: string;
+interface StartOptions {
+  repository?: string;
+  model?: string;
   baseUrl?: string;
   apiKeyEnv?: string;
+  tokenLimitParameter?: "max_tokens" | "max_completion_tokens";
+  reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
   inputPrice?: string;
   outputPrice?: string;
+  issueLabel?: string;
+  blockedLabel?: string;
+  doneLabel?: string;
+  pollIntervalSeconds?: string;
+  maxConcurrentJobs?: string;
+  maxSteps?: string;
+  maxCostUsd?: string;
+  contextWindowTokens?: string;
+  maxInputTokens?: string;
+  maxOutputTokens?: string;
+  sandboxImage?: string;
+  commandTimeoutSeconds?: string;
+  sandboxNetwork?: "bridge" | "none";
+  validationCommand?: string[];
+  clearValidationCommands?: boolean;
+  clearEndpoint?: boolean;
 }
 
-async function initializeRepository(options: InitOptions) {
-  if (existsSync(`${stateDirectory}/config.yaml`))
-    throw new Error("Configuration already exists");
-  const remote = await git(repositoryRoot, ["remote", "get-url", "origin"]);
-  const match = remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
-  if (!match) throw new Error("origin must be a GitHub repository");
+function addStartOptions(command: Command) {
+  return command
+    .option(
+      "--repository <owner/repo>",
+      "GitHub repository (defaults to origin)",
+    )
+    .option("--model <provider/model>", "Model ID, e.g. openai/gpt-6-luna")
+    .option("--base-url <url>", "OpenAI-compatible API base URL")
+    .option(
+      "--api-key-env <name>",
+      "Host environment variable containing the API key",
+    )
+    .option("--token-limit-parameter <name>", "Compatible API token parameter")
+    .option("--reasoning-effort <effort>", "Compatible API reasoning effort")
+    .option("--clear-endpoint", "Remove a saved OpenAI-compatible endpoint")
+    .option("--input-price <usd>", "USD per million input tokens")
+    .option("--output-price <usd>", "USD per million output tokens")
+    .option("--issue-label <label>", "Issue label that opts in to Louibot")
+    .option("--blocked-label <label>", "Status label for blocked jobs")
+    .option("--done-label <label>", "Status label for completed jobs")
+    .option(
+      "--poll-interval-seconds <seconds>",
+      "GitHub polling interval (minimum 5)",
+    )
+    .option("--max-concurrent-jobs <count>", "Maximum active jobs (1-8)")
+    .option("--max-steps <count>", "Maximum agent steps per run")
+    .option("--max-cost-usd <usd>", "Maximum estimated spend per issue")
+    .option("--context-window-tokens <count>", "Model context window size")
+    .option("--max-input-tokens <count>", "Maximum input tokens per model call")
+    .option(
+      "--max-output-tokens <count>",
+      "Maximum output tokens per model call",
+    )
+    .option("--sandbox-image <image>", "Docker image, or auto-discover")
+    .option("--command-timeout-seconds <seconds>", "Shell command timeout")
+    .option("--sandbox-network <mode>", "Sandbox network: bridge or none")
+    .option(
+      "--validation-command <command>",
+      "Validation command; repeat to set multiple",
+      (command: string, commands: string[] = []) => [...commands, command],
+      [],
+    )
+    .option(
+      "--clear-validation-commands",
+      "Use automatic validation discovery",
+    );
+}
+
+function numeric(value: string | undefined) {
+  return value === undefined ? undefined : Number(value);
+}
+function defined(values: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== undefined),
+  );
+}
+
+async function resolveConfig(options: StartOptions) {
   if (!!options.inputPrice !== !!options.outputPrice)
     throw new Error("Provide both --input-price and --output-price together");
+  if (options.clearValidationCommands && options.validationCommand?.length)
+    throw new Error(
+      "Use either --clear-validation-commands or --validation-command",
+    );
+  if (
+    options.clearEndpoint &&
+    (options.baseUrl ||
+      options.apiKeyEnv ||
+      options.tokenLimitParameter ||
+      options.reasoningEffort)
+  )
+    throw new Error(
+      "Use either --clear-endpoint or compatible endpoint options",
+    );
+  const saved = savedConfig(repositoryRoot);
+  const repository =
+    options.repository ??
+    (saved.repository as string | undefined) ??
+    (await git(repositoryRoot, ["remote", "get-url", "origin"])).match(
+      /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/,
+    )?.[1];
+  if (!repository)
+    throw new Error(
+      "Could not determine GitHub repository; pass --repository owner/repo",
+    );
+
+  const savedAgent = (saved.agent ?? {}) as Record<string, unknown>;
+  const model = options.model ?? (saved.model as string | undefined);
+  if (!model)
+    throw new Error(
+      "Pass --model provider/model or add model to .louibot/config.yaml",
+    );
+  const savedHasPricing =
+    saved.model === model &&
+    savedAgent.inputUsdPerMillion !== undefined &&
+    savedAgent.outputUsdPerMillion !== undefined;
   const pricing =
     options.inputPrice && options.outputPrice
       ? {
           inputUsdPerMillion: Number(options.inputPrice),
           outputUsdPerMillion: Number(options.outputPrice),
         }
-      : knownPricing(options.model);
-  if (!pricing)
+      : savedHasPricing
+        ? undefined
+        : knownPricing(model);
+  const agentOverrides: Record<string, unknown> = {
+    maxConcurrentJobs: numeric(options.maxConcurrentJobs),
+    maxSteps: numeric(options.maxSteps),
+    maxCostUsd: numeric(options.maxCostUsd),
+    contextWindowTokens: numeric(options.contextWindowTokens),
+    maxInputTokens: numeric(options.maxInputTokens),
+    maxOutputTokens: numeric(options.maxOutputTokens),
+    ...(pricing ?? {}),
+  };
+  if (options.inputPrice && options.outputPrice) {
+    agentOverrides.inputUsdPerMillion = Number(options.inputPrice);
+    agentOverrides.outputUsdPerMillion = Number(options.outputPrice);
+  } else if (savedHasPricing) {
+    // Keep saved provider pricing unless overridden on the command line.
+  } else if (!pricing) {
     throw new Error(
-      `No built-in pricing is available for ${options.model}. Provide --input-price and --output-price (USD per million tokens).`,
+      `No built-in pricing is available for ${model}; pass --input-price and --output-price`,
     );
-  const repositoryConfig = schema.parse({
-    repository: match[1],
-    model: options.model,
-    endpoint:
-      options.baseUrl || options.apiKeyEnv
-        ? { baseUrl: options.baseUrl, apiKeyEnv: options.apiKeyEnv }
+  }
+  const endpointOptions = defined({
+    baseUrl: options.baseUrl,
+    apiKeyEnv:
+      options.apiKeyEnv ??
+      (options.baseUrl &&
+      !(saved.endpoint as Record<string, unknown> | undefined)?.apiKeyEnv
+        ? "OPENAI_API_KEY"
+        : undefined),
+    tokenLimitParameter: options.tokenLimitParameter,
+    reasoningEffort: options.reasoningEffort,
+  });
+  const overrides = {
+    repository,
+    model,
+    endpoint: options.clearEndpoint
+      ? null
+      : Object.keys(endpointOptions).length
+        ? endpointOptions
         : undefined,
-    agent: {
-      inputUsdPerMillion: pricing.inputUsdPerMillion,
-      outputUsdPerMillion: pricing.outputUsdPerMillion,
-    },
-  });
-  mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
-  writeFileSync(`${stateDirectory}/config.yaml`, stringify(repositoryConfig), {
-    mode: 0o600,
-    flag: "wx",
-  });
-  console.log(
-    `Configured .louibot/config.yaml. Authenticate with gh auth login. Set ${repositoryConfig.endpoint?.apiKeyEnv ?? (repositoryConfig.model.startsWith("anthropic/") ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY")} in the host environment, then run louibot doctor.`,
-  );
+    github: defined({
+      issueLabel: options.issueLabel,
+      blockedLabel: options.blockedLabel,
+      doneLabel: options.doneLabel,
+      pollIntervalSeconds: numeric(options.pollIntervalSeconds),
+    }),
+    agent: defined(agentOverrides),
+    sandbox: defined({
+      image: options.sandboxImage,
+      commandTimeoutSeconds: numeric(options.commandTimeoutSeconds),
+      network: options.sandboxNetwork,
+    }),
+    validation: options.clearValidationCommands
+      ? { commands: [] }
+      : options.validationCommand?.length
+        ? { commands: options.validationCommand }
+        : {},
+  };
+  return config(repositoryRoot, overrides);
 }
 
-cli.command("doctor").action(async () => {
-  const healthy = await runDoctor(repositoryRoot, stateDirectory);
+addStartOptions(cli.command("doctor")).action(async (options: StartOptions) => {
+  const healthy = await runDoctor(
+    repositoryRoot,
+    stateDirectory,
+    await resolveConfig(options),
+  );
   if (!healthy) process.exitCode = 1;
 });
 cli.command("status").action(() => {
@@ -142,9 +273,8 @@ cli
       if (options.follow) await sleep(1000);
     } while (options.follow);
   });
-async function startWorker() {
-  const repositoryConfig = config(repositoryRoot),
-    store = new Store(stateDirectory),
+async function runWorker(repositoryConfig: ReturnType<typeof config>) {
+  const store = new Store(stateDirectory),
     lockPath = `${stateDirectory}/worker.lock`;
   try {
     const lockDescriptor = openSync(lockPath, "wx", 0o600);
@@ -192,7 +322,9 @@ async function startWorker() {
   }
 }
 
-cli.command("start").action(startWorker);
+addStartOptions(cli.command("start")).action(async (options: StartOptions) => {
+  await runWorker(await resolveConfig(options));
+});
 cli.parseAsync().catch((error) => {
   console.error(error.message);
   process.exitCode = 1;

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { z } from "zod";
 export const schema = z
@@ -82,8 +82,39 @@ export const schema = z
       });
   });
 export type Config = z.infer<typeof schema>;
-export function config(projectRoot: string): Config {
-  return schema.parse(
-    parse(readFileSync(`${projectRoot}/.louibot/config.yaml`, "utf8")),
+export function savedConfig(projectRoot: string): Record<string, unknown> {
+  const path = `${projectRoot}/.louibot/config.yaml`;
+  if (!existsSync(path)) return {};
+  const saved = parse(readFileSync(path, "utf8"));
+  if (!saved || typeof saved !== "object" || Array.isArray(saved))
+    throw new Error("Configuration must be a YAML mapping");
+  return saved as Record<string, unknown>;
+}
+export function config(
+  projectRoot: string,
+  overrides: Record<string, unknown> = {},
+): Config {
+  const base = savedConfig(projectRoot);
+  const definedOverrides = Object.fromEntries(
+    Object.entries(overrides).filter(([, value]) => value !== undefined),
   );
+  const merged: Record<string, unknown> = { ...base, ...definedOverrides };
+  if (definedOverrides.endpoint === null) delete merged.endpoint;
+  for (const section of [
+    "endpoint",
+    "github",
+    "agent",
+    "sandbox",
+    "validation",
+  ]) {
+    const fromFile = base[section];
+    const fromOptions = definedOverrides[section];
+    if (section === "endpoint" && fromOptions === null) continue;
+    if (fromFile || fromOptions)
+      merged[section] = {
+        ...(fromFile && typeof fromFile === "object" ? fromFile : {}),
+        ...(fromOptions && typeof fromOptions === "object" ? fromOptions : {}),
+      };
+  }
+  return schema.parse(merged);
 }

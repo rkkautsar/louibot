@@ -155,10 +155,11 @@ function checks(
 export async function runDoctor(
   root: string,
   stateDirectory: string,
+  resolvedConfig?: Config,
 ): Promise<boolean> {
   let repositoryConfig: Config;
   try {
-    repositoryConfig = config(root);
+    repositoryConfig = resolvedConfig ?? config(root);
   } catch (error) {
     console.log(`✗ Configuration: ${cleanError(error)}`);
     return false;

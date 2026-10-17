@@ -22,13 +22,12 @@ Linux/WSL, Node.js 22+, GitHub CLI (`gh`), and Docker are required. Run these co
 
 ```sh
 gh auth login
-# Set the model API key on the host.
-louibot init --model openai/gpt-6-luna
-louibot doctor
-louibot start
+export OPENAI_API_KEY="..."
+louibot doctor --model openai/gpt-6-luna
+louibot start --model openai/gpt-6-luna
 ```
 
-Louibot fills prices for a small catalog of direct OpenAI models. For other providers and all OpenAI-compatible endpoints, pass `--input-price` and `--output-price` as USD per million tokens; compatible services can apply their own gateway, negotiated, or regional rates, and there is no standard API for discovering them safely. The controller reserves a conservative estimated maximum before each call; reported cost is reserved spend, not billing reconciliation. Configuration lives in `.louibot/config.yaml`; never commit that directory.
+The repository is inferred from the current checkout's `origin`. Louibot fills prices for a small catalog of direct OpenAI models. For other providers and OpenAI-compatible endpoints, pass `--input-price` and `--output-price` as USD per million tokens; compatible services can apply their own gateway, negotiated, or regional rates, and there is no standard API for discovering them safely. The controller reserves a conservative estimated maximum before each call; reported cost is reserved spend, not billing reconciliation.
 
 Verify authentication with `gh auth status` before starting. Use the following commands for operations and recovery:
 
@@ -39,57 +38,32 @@ louibot stop <issue>
 louibot retry <issue>
 ```
 
-Cancellation preserves state. `retry` requeues failed, blocked, or stopped jobs with their workspace, conversation, processed events, and spending reservation retained. Correct the underlying failure or update the issue/configuration before retrying; retries do not reset the spending budget.
+Cancellation preserves state. `retry` requeues failed, blocked, or stopped jobs with their workspace, conversation, processed events, and spending reservation retained. Correct the underlying failure or update the issue and start options before retrying; retries do not reset the spending budget.
 
 ## OpenAI-compatible providers
 
-Choose `openai-compatible/<model-id>` with `--base-url` and `--api-key-env` during init. The controller uses Chat Completions, including tool calling; the selected model must support function tools. Model IDs may include slashes. Keys remain in the host environment and are never written into configuration or passed to Docker.
+Choose `openai-compatible/<model-id>` with `--base-url` and `--api-key-env`. Use `--token-limit-parameter` and `--reasoning-effort` for provider-specific Chat Completions settings. The controller uses Chat Completions, including tool calling; the selected model must support function tools. Model IDs may include slashes. Keys remain in the host environment and are never written into configuration or passed to Docker.
 
-For example, replace the model in this configuration with your provider's supported tool-calling model:
+Cloudflare AI Gateway with `openai/gpt-6-luna` was verified with `max_completion_tokens` and `reasoning_effort: none`. For that endpoint, start Louibot with the following options, supplying the two prices that match your Cloudflare account:
 
-```yaml
-model: openai-compatible/YOUR_MODEL_ID
-endpoint:
-  baseUrl: https://api.example.com/v1
-  apiKeyEnv: PROVIDER_API_KEY
+```sh
+louibot start \
+  --model openai-compatible/openai/gpt-6-luna \
+  --base-url "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai/v1" \
+  --api-key-env CLOUDFLARE_API_TOKEN \
+  --token-limit-parameter max_completion_tokens \
+  --reasoning-effort none \
+  --input-price "$INPUT_USD_PER_MILLION" \
+  --output-price "$OUTPUT_USD_PER_MILLION"
 ```
 
-Some providers need `endpoint.reasoningEffort` or `endpoint.tokenLimitParameter`; check the provider's Chat Completions documentation before configuring those optional fields.
+Use prices that match your Cloudflare account's billing. Other compatible endpoints may need different settings; check their Chat Completions documentation rather than assuming Cloudflare's parameters apply.
 
-### Configuration
+All settings can be passed to `louibot start` or `louibot doctor`. For repeated use, save defaults in `.louibot/config.yaml` and override any of them per invocation. CLI flags take precedence; no setup command is required. `louibot start --help` lists the flags. The YAML fields map to `--repository`, `--model`, `--base-url`, `--api-key-env`, `--token-limit-parameter`, `--reasoning-effort`, `--issue-label`, `--blocked-label`, `--done-label`, `--poll-interval-seconds`, `--max-concurrent-jobs`, `--max-steps`, `--max-cost-usd`, `--context-window-tokens`, `--max-input-tokens`, `--max-output-tokens`, `--input-price`, `--output-price`, `--sandbox-image`, `--command-timeout-seconds`, `--sandbox-network`, and repeatable `--validation-command`. Use `--clear-validation-commands` to return to automatic validation discovery and `--clear-endpoint` to remove a saved compatible API endpoint. The token defaults reserve headroom inside a 200K context window; raise them only when the selected model and endpoint document larger limits.
 
-`init` writes `.louibot/config.yaml`. The generated file can be edited for polling, labels, model limits, and sandbox settings. The token defaults reserve headroom inside a 200K context window; raise them only when the selected model and endpoint document larger limits:
+`louibot doctor` checks GitHub access, Docker, the model key, the discovered sandbox image, and repository validation commands. `--sandbox-image auto` uses a directly referenced image from `.devcontainer/devcontainer.json` when available, then selects a common language image from repository files, and finally falls back to `node:22`. Set an explicit image when the repository needs a custom toolchain; Louibot does not build arbitrary Dockerfiles automatically. Automatic validation discovery is used unless one or more `--validation-command` flags override it.
 
-```yaml
-repository: owner/repository
-model: openai/YOUR_MODEL
-github:
-  issueLabel: louibot:active
-  blockedLabel: louibot:blocked
-  doneLabel: louibot:done
-  pollIntervalSeconds: 30
-agent:
-  maxConcurrentJobs: 1
-  maxSteps: 60
-  maxCostUsd: 3
-  contextWindowTokens: 200000
-  maxInputTokens: 160000
-  maxOutputTokens: 32000
-  inputUsdPerMillion: 0.1
-  outputUsdPerMillion: 0.5
-sandbox:
-  image: auto
-  commandTimeoutSeconds: 120
-  network: bridge
-validation:
-  commands: []
-```
-
-`louibot doctor` checks GitHub access, Docker, the model key, the discovered sandbox image, and repository validation commands. `sandbox.image: auto` uses a directly referenced image from `.devcontainer/devcontainer.json` when available, then selects a common language image from repository files, and finally falls back to `node:22`. Set an explicit image when the repository needs a custom toolchain; Louibot does not build arbitrary Dockerfiles automatically.
-
-An empty `validation.commands` list enables safe command discovery from repository metadata. Add commands to that list to override discovery with the checks your project requires.
-
-OpenAI and Anthropic providers read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` respectively unless a compatible endpoint specifies another host environment variable. Credentials stay on the host and are never written into this file or passed to Docker.
+OpenAI and Anthropic providers read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` respectively unless a compatible endpoint specifies another host environment variable. Credentials stay in the host environment and are never written into configuration or passed to Docker.
 
 One local worker runs up to `agent.maxConcurrentJobs` coding jobs in parallel; the default is one. Run only one Louibot coordinator for a repository because separate clones or machines can claim the same comment and race on the issue branch. A collaborator with write, maintain, or admin permission can answer clarification or request revisions. PRs are drafts and Louibot never merges them.
 
