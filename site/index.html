@@ -61,13 +61,17 @@
             ><span class="terminal-label">louibot / local</span>
           </div>
           <div class="terminal-body">
-            <p><span class="terminal-dim">$</span> louibot doctor</p>
+            <p>
+              <span class="terminal-dim">$</span> louibot doctor --model
+              openai/gpt-6-luna
+            </p>
             <p class="terminal-ok">✓ GitHub access</p>
             <p class="terminal-ok">✓ Docker sandbox</p>
             <p class="terminal-ok">✓ Model provider</p>
             <p class="terminal-ok">✓ Repository checks</p>
             <p class="terminal-gap">
-              <span class="terminal-dim">$</span> louibot start
+              <span class="terminal-dim">$</span> louibot start --model
+              openai/gpt-6-luna
             </p>
             <p>
               <span class="terminal-dim">issue #42</span> &nbsp; waiting for
@@ -176,10 +180,11 @@
       <section class="getting-started section-shell" id="getting-started">
         <div class="section-intro narrow-intro">
           <p class="eyebrow">Get started</p>
-          <h2>Three commands to your first worker.</h2>
+          <h2>Start from the repo you want to change.</h2>
           <p>
             Bring Node.js 22+, GitHub CLI, Docker, and an API key for a
-            tool-calling model. The rest lives in the repository.
+            tool-calling model. Louibot identifies the repository from its
+            GitHub origin; there is no setup command or config file to create.
           </p>
         </div>
         <div class="install-layout">
@@ -190,12 +195,12 @@
             <pre><code><span class="code-muted"># install</span>
 npm install --global louibot
 
-<span class="code-muted"># configure from your repository root</span>
-louibot init --model openai/YOUR_MODEL
-louibot doctor
+<span class="code-muted"># from your repository root</span>
+export OPENAI_API_KEY="..."
+louibot doctor --model openai/gpt-6-luna
 
 <span class="code-muted"># start polling GitHub</span>
-louibot start</code></pre>
+louibot start --model openai/gpt-6-luna</code></pre>
           </div>
           <div class="install-notes">
             <div class="note-item">
@@ -204,7 +209,9 @@ louibot start</code></pre>
                 <h3>Use your own model key</h3>
                 <p>
                   OpenAI, Anthropic, and OpenAI-compatible Chat Completions
-                  endpoints are supported. Keys remain in the host environment.
+                  endpoints are supported. Keys stay on the host. Pass provider,
+                  model, limits, labels, and sandbox options to
+                  <code>start</code>; YAML is optional for saved defaults.
                 </p>
               </div>
             </div>
