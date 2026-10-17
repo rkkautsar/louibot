@@ -22,7 +22,7 @@ jobs:
       - name: Verify release version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: test "$RELEASE_TAG" = "v$(node -p \"require('./package.json').version\")"
+        run: test "$RELEASE_TAG" = "v$(node -p 'require("./package.json").version')"
       - run: npm run format:check
       - run: npm run build
       - run: npm test
