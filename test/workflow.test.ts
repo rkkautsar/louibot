@@ -344,7 +344,7 @@ test("a fresh implement comment retries a failed job once and uses updated issue
     assert.equal(retried.body, issue.body);
     assert.equal(retried.worktree, original.worktree);
     assert.equal(retried.branch, original.branch);
-    assert.equal(retried.attempt, original.attempt);
+    assert.equal(retried.attempt, original.attempt! + 1);
     assert.equal(retried.cost, original.cost);
     assert.equal(retried.feedback, original.feedback);
     assert.equal(retried.error, undefined);

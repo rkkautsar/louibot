@@ -62,6 +62,33 @@ test("jobs and stop flags persist after reopening", () => {
   }
 });
 
+test("retry starts a new attempt while preserving the issue and workspace", () => {
+  const { dir, store } = temporaryStore();
+  const original: Job = {
+    ...job(25),
+    status: "failed",
+    attempt: 1,
+    error: "context window exceeded",
+    errorCode: "CONTEXT_LENGTH_EXCEEDED",
+  };
+  try {
+    store.save(original);
+
+    const retried = store.retry(25, "implement:retry-comment");
+
+    assert.equal(retried.attempt, 2);
+    assert.equal(retried.status, "queued");
+    assert.equal(retried.retryRequested, true);
+    assert.equal(retried.body, original.body);
+    assert.equal(retried.worktree, original.worktree);
+    assert.equal(retried.error, undefined);
+    assert.equal(retried.errorCode, undefined);
+  } finally {
+    store.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("log redacts configured secrets and common token formats", () => {
   const { dir, store } = temporaryStore();
   const oldSecret = process.env.LOUIBOT_TEST_SECRET;

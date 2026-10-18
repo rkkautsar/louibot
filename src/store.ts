@@ -104,6 +104,9 @@ export class Store {
       throw new Error(`Issue #${issue} cannot be retried while ${job.status}`);
     this.db.prepare("INSERT OR REPLACE INTO control VALUES(?,0)").run(issue);
     job.status = "queued";
+    // Give the retry a new LangGraph thread so it cannot inherit an oversized
+    // or otherwise stale conversation from the failed attempt.
+    job.attempt = (job.attempt ?? 1) + 1;
     job.retryRequested = true;
     job.error = undefined;
     job.errorCode = undefined;
