@@ -333,7 +333,7 @@ cli.command("retry <issue>").action((issue) => {
     store.db.close();
   }
   console.log(
-    `Queued #${issue} for retry with its existing workspace, history, and spending reservation.`,
+    `Queued #${issue} for retry with its existing workspace, history, and spending reservation. You can also post a new @louibot implement comment.`,
   );
 });
 cli

@@ -90,7 +90,7 @@ export class Store {
   registerSecret(value: string | undefined): void {
     if (value && value.length > 3) this.registeredSecrets.add(value);
   }
-  retry(issue: number): Job {
+  retry(issue: number, triggerEvent?: string): Job {
     const job = this.get(issue);
     if (!job) throw new Error(`Unknown issue #${issue}`);
     if (
@@ -102,6 +102,9 @@ export class Store {
     this.db.prepare("INSERT OR REPLACE INTO control VALUES(?,0)").run(issue);
     job.status = "queued";
     job.retryRequested = true;
+    job.error = undefined;
+    if (triggerEvent && !job.events.includes(triggerEvent))
+      job.events.push(triggerEvent);
     job.last = new Date().toISOString();
     this.save(job);
     this.log(issue, "state", "queued");

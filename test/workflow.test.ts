@@ -239,3 +239,66 @@ test("closed PR retries only when a new implement command is posted", async () =
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a fresh implement comment retries a failed job once and uses updated issue text", async () => {
+  const root = mkdtempSync(join(tmpdir(), "louibot-comment-retry-"));
+  const { Store } = await import("../src/store.js");
+  const store = new Store(root);
+  const original: Job = {
+    issue: 8,
+    title: "Original title",
+    body: "Original details",
+    status: "failed",
+    branch: "louibot/issue-8",
+    worktree: `${root}/workspaces/8`,
+    revision: 2,
+    attempt: 1,
+    cost: 0.75,
+    last: "before",
+    events: ["implement:10", "comment:12"],
+    feedback: "prior agent history",
+    rounds: 1,
+    error: "temporary model error",
+  };
+  store.save(original);
+  const issue = {
+    number: 8,
+    title: "Updated title",
+    body: "Clarified details",
+  };
+  let commentId = 11;
+  const github = {
+    implementationRequests: async () => [{ issue, commentId }],
+  };
+  const config = {
+    model: "openai/gpt-6-luna",
+    reviewer: { enabled: false },
+  };
+  try {
+    await claimImplementationRequests(store, github as never, config as never);
+    const retried = store.get(8)!;
+    assert.equal(retried.status, "queued");
+    assert.equal(retried.retryRequested, true);
+    assert.equal(retried.title, issue.title);
+    assert.equal(retried.body, issue.body);
+    assert.equal(retried.worktree, original.worktree);
+    assert.equal(retried.branch, original.branch);
+    assert.equal(retried.attempt, original.attempt);
+    assert.equal(retried.cost, original.cost);
+    assert.equal(retried.feedback, original.feedback);
+    assert.equal(retried.error, undefined);
+    assert.ok(retried.events.includes("implement:10"));
+    assert.ok(retried.events.includes("implement:11"));
+
+    const lastUpdated = retried.last;
+    await claimImplementationRequests(store, github as never, config as never);
+    assert.equal(store.get(8)?.last, lastUpdated);
+    assert.equal(
+      store.get(8)?.events.filter((event) => event === "implement:11").length,
+      1,
+    );
+  } finally {
+    store.db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

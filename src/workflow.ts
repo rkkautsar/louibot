@@ -581,8 +581,19 @@ export async function claimImplementationRequests(
       });
       continue;
     }
+    const event = `implement:${request.commentId}`;
+    if (existing.events.includes(event)) continue;
+    if (["failed", "blocked", "stopped"].includes(existing.status)) {
+      const retried = store.retry(issue.number, event);
+      store.save({
+        ...retried,
+        ...issue,
+        issue: issue.number,
+        last: new Date().toISOString(),
+      });
+      continue;
+    }
     if (existing.status !== "done" || existing.outcome !== "closed") continue;
-    if (existing.events.includes(`implement:${request.commentId}`)) continue;
     const attempt = (existing.attempt ?? 1) + 1;
     store.save({
       ...existing,
@@ -606,7 +617,7 @@ export async function claimImplementationRequests(
       codingSeconds: 0,
       codingStartedAt: undefined,
       last: new Date().toISOString(),
-      events: [...existing.events, `implement:${request.commentId}`],
+      events: [...existing.events, event],
       feedback: "",
       rounds: 0,
       retryRequested: undefined,

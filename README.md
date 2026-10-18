@@ -38,7 +38,7 @@ louibot stop <issue>
 louibot retry <issue>
 ```
 
-Cancellation preserves state. `retry` requeues failed, blocked, or stopped jobs with their workspace, conversation, processed events, and spending reservation retained. Correct the underlying failure or update the issue and start options before retrying; retries do not reset the spending budget.
+Cancellation preserves state. For a failed, blocked, or stopped job, post a new `@louibot implement` comment to retry with its existing workspace, conversation, and spending reservation. You can also use `louibot retry <issue>` locally. Fix the underlying problem or clarify the issue before retrying; retries do not reset the spending budget.
 
 ## OpenAI-compatible providers
 
@@ -71,7 +71,7 @@ One local worker runs up to `agent.maxConcurrentJobs` coding jobs in parallel; t
 
 Write the issue normally, then add a separate issue comment containing exactly `@louibot implement` from the GitHub account currently authenticated with `gh`. Louibot checks that account has repository write, maintain, or admin permission before claiming the issue. The issue body remains the task specification; the command only starts the worker. Authorized collaborators can still provide clarification replies and review feedback, but their comments do not trigger a run.
 
-If a draft PR is closed without merging, edit the issue with the clearer requirements and add another `@louibot implement` comment. Louibot starts a fresh attempt on a new retry branch and creates a new draft PR. The previous closed PR remains available for comparison. Use `louibot retry <issue>` for failed, blocked, or stopped jobs that do not have a closed PR.
+If a draft PR is closed without merging, edit the issue with the clearer requirements and add another `@louibot implement` comment. Louibot starts a fresh attempt on a new retry branch and creates a new draft PR. The previous closed PR remains available for comparison. If implementation fails, post a new `@louibot implement` comment to retry the saved job with the updated issue text. The new comment is the retry signal; duplicate or already-processed comments remain idempotent. The CLI retry command remains available for local recovery.
 
 Louibot uses `louibot:active` while an issue is active, `louibot:blocked` while clarification or failure needs attention, and `louibot:done` after a merged PR. These labels are status indicators; comments trigger implementation and revision. A PR closed without merging removes worker lifecycle labels without marking the issue done. Unrelated labels are preserved. Configure these status labels with `github.issueLabel`, `github.blockedLabel`, and `github.doneLabel`.
 
