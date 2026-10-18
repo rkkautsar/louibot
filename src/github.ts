@@ -256,10 +256,21 @@ export class GitHub {
     }
     if (!trigger) return undefined;
 
-    const [reviews, threads] = await Promise.all([
+    const [reviews, threads, discussion] = await Promise.all([
       this.reviews(pr),
       this.openReviewThreads(pr),
+      this.comments(pr),
     ]);
+    const acceptedDiscussion: CommentRecord[] = [];
+    for (const comment of discussion) {
+      if (
+        this.isReviseCommand(comment.body) ||
+        /<!--\s*louibot:/i.test(comment.body)
+      )
+        continue;
+      if (await this.authorized(comment.user.login))
+        acceptedDiscussion.push(comment);
+    }
     const acceptedReviews: ReviewRecord[] = [];
     for (const review of reviews) {
       if (review.body.trim() && (await this.authorized(review.user.login)))
@@ -274,6 +285,10 @@ export class GitHub {
         acceptedThreads.push(comment);
     }
     const text = [
+      ...acceptedDiscussion.map(
+        (comment) =>
+          `@${comment.user.login} PR discussion: ${comment.body.trim()}`,
+      ),
       ...acceptedReviews.map(
         (review) => `@${review.user.login} review: ${review.body.trim()}`,
       ),
@@ -286,9 +301,12 @@ export class GitHub {
     ].join("\n\n");
     return {
       eventId: `pr-command:${trigger.id}`,
-      commentEvents: acceptedThreads.map(
-        (comment) => `review-comment:${comment.databaseId}`,
-      ),
+      commentEvents: [
+        ...acceptedDiscussion.map((comment) => `pr-comment:${comment.id}`),
+        ...acceptedThreads.map(
+          (comment) => `review-comment:${comment.databaseId}`,
+        ),
+      ],
       feedback:
         text ||
         "The revise command was received, but no unresolved authorized review feedback was found. Do not invent changes.",
