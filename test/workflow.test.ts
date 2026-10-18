@@ -12,6 +12,7 @@ import {
   pullRequestBody,
   readPullRequestTemplate,
   revisionComment,
+  reviewerSkipSummary,
   runWithConcurrency,
   validationDetails,
 } from "../src/workflow.js";
@@ -154,6 +155,7 @@ test("publication text includes run metadata when available", () => {
     {
       model: "openai-compatible/openai/gpt-6-luna",
       reviewerModel: "openai-compatible/openai/gpt-6-astra",
+      reviewerMaxSteps: 24,
       reviewStatus: "findings",
       reviewSummary: "One concrete edge case was returned to the implementer.",
       codingSeconds: 85,
@@ -168,6 +170,42 @@ test("publication text includes run metadata when available", () => {
   );
   assert.match(body, /Agent time: 1m 25s/);
   assert.match(body, /Estimated spend: \$0\.25/);
+});
+
+test("review recursion failures get a clear PR-safe skip reason", () => {
+  assert.equal(
+    reviewerSkipSummary(
+      Object.assign(new Error("Recursion limit of 6 reached"), {
+        name: "GraphRecursionError",
+      }),
+    ),
+    "Review stopped at its configured step limit; see local logs for the error details.",
+  );
+  assert.equal(
+    reviewerSkipSummary(new Error("Provider request failed")),
+    "Review request failed; see local logs for the error details.",
+  );
+});
+
+test("skipped reviewer publication shows its configured step limit", () => {
+  const body = pullRequestBody(
+    12,
+    "Add the filter controls.",
+    "npm test passed",
+    undefined,
+    {
+      reviewerModel: "openai/gpt-6-luna",
+      reviewerMaxSteps: 24,
+      reviewStatus: "skipped",
+      reviewSummary:
+        "Review stopped at its configured step limit; see local logs for the error details.",
+    },
+  );
+  assert.match(
+    body,
+    /Independent review: `openai\/gpt-6-luna` \(skipped; configured step limit: 24\)/,
+  );
+  assert.match(body, /stopped at its configured step limit/);
 });
 
 test("duration formatting is compact", () => {

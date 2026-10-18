@@ -81,7 +81,7 @@ test("sandbox network mode can disable internet access", () => {
 test("reviewer is opt-in and can use a separately priced model on the same provider", () => {
   assert.deepEqual(schema.parse(base).reviewer, {
     enabled: false,
-    maxSteps: 12,
+    maxSteps: 24,
   });
   const parsed = schema.parse({
     ...base,

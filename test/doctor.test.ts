@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cleanError } from "../src/doctor.js";
+import {
+  cleanError,
+  modelCredentialSource,
+  probeModelAccess,
+} from "../src/doctor.js";
+import { schema } from "../src/config.js";
+
+const compatibleConfig = schema.parse({
+  repository: "owner/repo",
+  model: "openai-compatible/openai/gpt-6-luna",
+  endpoint: {
+    baseUrl: "https://gateway.example/ai/v1",
+    apiKeyEnv: "LOUIBOT_DOCTOR_TOKEN",
+  },
+  agent: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+});
 
 test("doctor errors redact credential assignments and bearer tokens", () => {
   assert.equal(
@@ -23,5 +38,56 @@ test("doctor errors redact values of secret environment variables", () => {
   } finally {
     if (previousValue === undefined) delete process.env[name];
     else process.env[name] = previousValue;
+  }
+});
+
+test("doctor names the selected host credential source without exposing it", () => {
+  assert.equal(
+    modelCredentialSource(compatibleConfig),
+    "host environment variable LOUIBOT_DOCTOR_TOKEN (value hidden)",
+  );
+});
+
+test("doctor probes using the configured credential and reports only its name", async () => {
+  const name = "LOUIBOT_DOCTOR_TOKEN";
+  const previousValue = process.env[name];
+  process.env[name] = "never-print-this-value";
+  let called = false;
+  try {
+    assert.equal(
+      await probeModelAccess(compatibleConfig, async () => {
+        called = true;
+        return {};
+      }),
+      "request succeeded using LOUIBOT_DOCTOR_TOKEN (value hidden)",
+    );
+    assert.equal(called, true);
+  } finally {
+    if (previousValue === undefined) delete process.env[name];
+    else process.env[name] = previousValue;
+  }
+});
+
+test("doctor does not make an API request when the selected key is missing", async () => {
+  const name = "LOUIBOT_DOCTOR_MISSING_TOKEN";
+  const previousValue = process.env[name];
+  delete process.env[name];
+  let called = false;
+  try {
+    await assert.rejects(
+      probeModelAccess(
+        {
+          ...compatibleConfig,
+          endpoint: { ...compatibleConfig.endpoint, apiKeyEnv: name },
+        },
+        async () => {
+          called = true;
+        },
+      ),
+      new RegExp(`${name} is not set`),
+    );
+    assert.equal(called, false);
+  } finally {
+    if (previousValue !== undefined) process.env[name] = previousValue;
   }
 });

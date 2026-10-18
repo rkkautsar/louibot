@@ -57,11 +57,11 @@ export const schema = z
           .string()
           .regex(/^(openai|anthropic|openai-compatible)\/.+/)
           .optional(),
-        maxSteps: z.number().int().positive().default(12),
+        maxSteps: z.number().int().positive().default(24),
         inputUsdPerMillion: z.number().nonnegative().optional(),
         outputUsdPerMillion: z.number().nonnegative().optional(),
       })
-      .default({ enabled: false, maxSteps: 12 }),
+      .default({ enabled: false, maxSteps: 24 }),
     sandbox: z
       .object({
         image: z.string().default("auto"),

@@ -32,6 +32,15 @@ const reviewSchema = z.object({
 export type ReviewResult = z.infer<typeof reviewSchema>;
 const MAX_VALIDATION_OUTPUT = 24_000;
 const TOKEN_ESTIMATE_OVERHEAD = 4_096;
+const MALFORMED_TOOL_CALL = "LOUIBOT_MALFORMED_TOOL_CALL";
+
+function malformedToolCallError(maxOutputTokens: number): Error {
+  const error = new Error(
+    `The model returned a malformed or truncated tool call before producing a Louibot result. Louibot will make one recovery attempt; repeated failures may mean the response exceeded the ${maxOutputTokens}-token output limit. Increase --max-output-tokens and retry if needed.`,
+  );
+  error.name = MALFORMED_TOOL_CALL;
+  return error;
+}
 
 export function parseAgentResponse<T>(
   structuredResponse: unknown,
@@ -53,12 +62,34 @@ export function parseAgentResponse<T>(
         finishReason === "max_tokens"
       );
     });
-    if (malformedOrTruncated)
-      throw new Error(
-        `The model returned a malformed or truncated tool call before producing a Louibot result. It may have reached the ${maxOutputTokens}-token output limit; increase --max-output-tokens and retry.`,
-      );
+    if (malformedOrTruncated) throw malformedToolCallError(maxOutputTokens);
   }
   return schema.parse(structuredResponse);
+}
+
+export async function invokeWithMalformedToolCallRecovery<T>(
+  invoke: (recovery: boolean) => Promise<{
+    structuredResponse: unknown;
+    messages: unknown[];
+  }>,
+  parse: (output: { structuredResponse: unknown; messages: unknown[] }) => T,
+): Promise<T> {
+  try {
+    return parse(await invoke(false));
+  } catch (error) {
+    if (!(error instanceof Error) || error.name !== MALFORMED_TOOL_CALL)
+      throw error;
+  }
+  try {
+    return parse(await invoke(true));
+  } catch (error) {
+    if (error instanceof Error && error.name === MALFORMED_TOOL_CALL)
+      throw new Error(
+        "The model returned another malformed or truncated tool call after Louibot's one recovery attempt. Increase --max-output-tokens and use the issue comment trigger to retry.",
+        { cause: error },
+      );
+    throw error;
+  }
 }
 
 async function validate(
@@ -187,34 +218,46 @@ export async function code(
       ],
       checkpointer: SqliteSaver.fromConnString(`${store.dir}/agent.sqlite`),
     });
-    const out = await agent.invoke(
-      {
-        messages: [
+    const invokeConfig = {
+      configurable: {
+        thread_id: `issue-${job.issue}-attempt-${job.attempt ?? 1}`,
+      },
+      recursionLimit: config.agent.maxSteps,
+      signal,
+    };
+    const taskMessage = {
+      role: "user" as const,
+      content: JSON.stringify({
+        issue: job.issue,
+        title: job.title,
+        requirements: job.body,
+        feedback: job.feedback,
+        reviewerFindings: job.reviewerFeedback,
+      }),
+    };
+    const result = await invokeWithMalformedToolCallRecovery(
+      (recovery) =>
+        agent.invoke(
           {
-            role: "user",
-            content: JSON.stringify({
-              issue: job.issue,
-              title: job.title,
-              requirements: job.body,
-              feedback: job.feedback,
-              reviewerFindings: job.reviewerFeedback,
-            }),
+            messages: [
+              recovery
+                ? {
+                    role: "user",
+                    content:
+                      "Your previous response contained a malformed or truncated tool call and was not accepted. Make one concise recovery attempt and return the required structured Louibot result. Continue from the existing conversation and workspace; do not repeat completed shell commands unless needed.",
+                  }
+                : taskMessage,
+            ],
           },
-        ],
-      },
-      {
-        configurable: {
-          thread_id: `issue-${job.issue}-attempt-${job.attempt ?? 1}`,
-        },
-        recursionLimit: config.agent.maxSteps,
-        signal,
-      },
-    );
-    const result = parseAgentResponse(
-      out.structuredResponse,
-      out.messages,
-      resultSchema,
-      config.agent.maxOutputTokens,
+          invokeConfig,
+        ),
+      (out) =>
+        parseAgentResponse(
+          out.structuredResponse,
+          out.messages,
+          resultSchema,
+          config.agent.maxOutputTokens,
+        ),
     );
     if (result.status === "done") {
       const validation = await validate(config, job.worktree, sandbox, signal);

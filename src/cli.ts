@@ -63,7 +63,7 @@ function addStartOptions(command: Command) {
     .option("--base-url <url>", "OpenAI-compatible API base URL")
     .option(
       "--api-key-env <name>",
-      "Host environment variable containing the API key",
+      "Host environment variable Louibot uses for the API key",
     )
     .option("--token-limit-parameter <name>", "Compatible API token parameter")
     .option("--reasoning-effort <effort>", "Compatible API reasoning effort")
@@ -73,7 +73,10 @@ function addStartOptions(command: Command) {
     .option("--review", "Enable the independent read-only review pass")
     .option("--no-review", "Disable the independent review pass")
     .option("--reviewer-model <provider/model>", "Model ID for the reviewer")
-    .option("--reviewer-max-steps <count>", "Maximum reviewer steps")
+    .option(
+      "--reviewer-max-steps <count>",
+      "Maximum reviewer steps (default: 24)",
+    )
     .option(
       "--reviewer-input-price <usd>",
       "Reviewer USD per million input tokens",

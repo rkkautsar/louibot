@@ -58,10 +58,21 @@ export function validationDetails(tests: string): string {
 export interface RunMetadata {
   model?: string;
   reviewerModel?: string;
+  reviewerMaxSteps?: number;
   reviewStatus?: Job["reviewStatus"];
   reviewSummary?: string;
   codingSeconds?: number;
   estimatedCostUsd?: number;
+}
+
+export function reviewerSkipSummary(error: unknown): string {
+  if (
+    error instanceof Error &&
+    (error.name === "GraphRecursionError" ||
+      /recursion limit/i.test(error.message))
+  )
+    return "Review stopped at its configured step limit; see local logs for the error details.";
+  return "Review request failed; see local logs for the error details.";
 }
 
 export function formatDuration(seconds: number | undefined): string {
@@ -83,7 +94,7 @@ function runDetails(metadata?: RunMetadata): string {
     "",
     `- Model: \`${metadata.model ?? "unknown"}\``,
     metadata.reviewerModel
-      ? `- Independent review: \`${metadata.reviewerModel}\` (${metadata.reviewStatus === "findings" ? "findings returned to implementer; follow-up not independently re-reviewed" : (metadata.reviewStatus ?? "pending")})${metadata.reviewSummary ? ` — ${metadata.reviewSummary}` : ""}`
+      ? `- Independent review: \`${metadata.reviewerModel}\` (${metadata.reviewStatus === "findings" ? "findings returned to implementer; follow-up not independently re-reviewed" : (metadata.reviewStatus ?? "pending")}${metadata.reviewStatus === "skipped" && metadata.reviewerMaxSteps ? `; configured step limit: ${metadata.reviewerMaxSteps}` : ""})${metadata.reviewSummary ? ` — ${metadata.reviewSummary}` : ""}`
       : undefined,
     `- Agent time: ${formatDuration(metadata.codingSeconds)}`,
     `- Estimated spend: ${cost}`,
@@ -265,6 +276,7 @@ async function publishChanges(
   job: Job,
   result: Result,
   github: GitHub,
+  reviewerMaxSteps: number,
   saveJob: (job: Job, status: JobStatus) => Promise<Job>,
 ): Promise<Job> {
   const publishingJob = { ...job };
@@ -304,6 +316,7 @@ async function publishChanges(
         {
           model: publishingJob.model,
           reviewerModel: publishingJob.reviewerModel,
+          reviewerMaxSteps,
           reviewStatus: publishingJob.reviewStatus,
           reviewSummary: publishingJob.reviewSummary,
           codingSeconds: publishingJob.codingSeconds,
@@ -318,6 +331,7 @@ async function publishChanges(
       revisionComment(result.summary, result.tests, {
         model: publishingJob.model,
         reviewerModel: publishingJob.reviewerModel,
+        reviewerMaxSteps,
         reviewStatus: publishingJob.reviewStatus,
         reviewSummary: publishingJob.reviewSummary,
         codingSeconds: publishingJob.codingSeconds,
@@ -439,7 +453,7 @@ export function workflow(
         if (signal.aborted || store.stopped(currentJob.issue)) throw error;
         currentJob.reviewedRevision = currentJob.revision;
         currentJob.reviewStatus = "skipped";
-        currentJob.reviewSummary = "Review could not complete; see local logs.";
+        currentJob.reviewSummary = reviewerSkipSummary(error);
         currentJob.reviewerModel = config.reviewer.model ?? config.model;
         delete currentJob.reviewerFeedback;
         store.save(currentJob);
@@ -488,7 +502,13 @@ export function workflow(
       return { job: resumedJob };
     })
     .addNode("publish", async ({ job, result }) => {
-      const publishedJob = await publishChanges(job, result, github, save);
+      const publishedJob = await publishChanges(
+        job,
+        result,
+        github,
+        config.reviewer.maxSteps,
+        save,
+      );
       return { job: publishedJob };
     })
     .addNode("blocked", async ({ job, result }) => ({

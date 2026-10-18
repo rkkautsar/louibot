@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
 import { config, type Config } from "./config.js";
+import { createModel } from "./model.js";
 import {
   discoverSandboxImage,
   discoverValidationCommands,
@@ -61,6 +62,32 @@ function modelKeyEnv(repositoryConfig: Config): string {
       ? "ANTHROPIC_API_KEY"
       : "OPENAI_API_KEY")
   );
+}
+
+export function modelCredentialSource(repositoryConfig: Config): string {
+  return `host environment variable ${modelKeyEnv(repositoryConfig)} (value hidden)`;
+}
+
+export async function probeModelAccess(
+  repositoryConfig: Config,
+  invoke: () => Promise<unknown> = () =>
+    createModel(repositoryConfig, repositoryConfig.model, 1).invoke(
+      "Reply with OK.",
+      { signal: AbortSignal.timeout(20_000) },
+    ),
+): Promise<string> {
+  const envName = modelKeyEnv(repositoryConfig);
+  if (!process.env[envName]) throw new Error(`${envName} is not set`);
+  try {
+    // A one-token request exercises the same host-side credential and route as the agent.
+    await invoke();
+  } catch (error) {
+    throw new Error(
+      `Request failed using ${envName}; check the selected key, endpoint, model access, and provider permissions (${cleanError(error)})`,
+      { cause: error },
+    );
+  }
+  return `request succeeded using ${envName} (value hidden)`;
 }
 
 function checks(
@@ -142,8 +169,13 @@ function checks(
       run: async () => {
         const envName = modelKeyEnv(repositoryConfig);
         if (!process.env[envName]) throw new Error(`${envName} is not set`);
-        return `${envName} is set`;
+        return `using ${modelCredentialSource(repositoryConfig)}`;
       },
+    },
+    {
+      label: "Model API access",
+      required: true,
+      run: async () => probeModelAccess(repositoryConfig),
     },
     {
       label: "Louibot state directory",
