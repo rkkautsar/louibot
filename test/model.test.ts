@@ -29,6 +29,7 @@ test("compatible configuration requires endpoint and keeps model names with slas
     "file:///tmp/test",
     "https://user:pass@example.com",
     "https://example.com?key=secret",
+    "https://gateway.example/v1/chat/completions",
   ])
     assert.equal(
       schema.safeParse({ ...base, endpoint: { ...base.endpoint, baseUrl } })

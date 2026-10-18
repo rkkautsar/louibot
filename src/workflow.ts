@@ -374,7 +374,7 @@ export function workflow(
       }
       return { job: currentJob, result };
     })
-    .addNode("review", async ({ job, result }) => {
+    .addNode("independentReview", async ({ job, result }) => {
       const currentJob = { ...job };
       if (store.stopped(currentJob.issue) || signal.aborted)
         throw new Error("Job stopped");
@@ -499,10 +499,10 @@ export function workflow(
       if (result.status === "clarify") return "clarify";
       if (result.status !== "done") return "blocked";
       return config.reviewer.enabled && job.reviewedRevision !== job.revision
-        ? "review"
+        ? "independentReview"
         : "publish";
     })
-    .addConditionalEdges("review", ({ review }) =>
+    .addConditionalEdges("independentReview", ({ review }) =>
       review?.status === "findings" ? "implement" : "publish",
     )
     .addConditionalEdges("clarify", ({ job }) =>

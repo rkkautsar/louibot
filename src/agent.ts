@@ -33,6 +33,34 @@ export type ReviewResult = z.infer<typeof reviewSchema>;
 const MAX_VALIDATION_OUTPUT = 24_000;
 const TOKEN_ESTIMATE_OVERHEAD = 4_096;
 
+export function parseAgentResponse<T>(
+  structuredResponse: unknown,
+  messages: unknown[],
+  schema: z.ZodType<T>,
+  maxOutputTokens: number,
+): T {
+  if (structuredResponse === undefined) {
+    const malformedOrTruncated = messages.some((message) => {
+      if (typeof message !== "object" || message === null) return false;
+      const record = message as {
+        invalid_tool_calls?: unknown[];
+        response_metadata?: { finish_reason?: unknown };
+      };
+      const finishReason = record.response_metadata?.finish_reason;
+      return (
+        (record.invalid_tool_calls?.length ?? 0) > 0 ||
+        finishReason === "length" ||
+        finishReason === "max_tokens"
+      );
+    });
+    if (malformedOrTruncated)
+      throw new Error(
+        `The model returned a malformed or truncated tool call before producing a Louibot result. It may have reached the ${maxOutputTokens}-token output limit; increase --max-output-tokens and retry.`,
+      );
+  }
+  return schema.parse(structuredResponse);
+}
+
 async function validate(
   config: Config,
   root: string,
@@ -182,7 +210,12 @@ export async function code(
         signal,
       },
     );
-    const result = resultSchema.parse(out.structuredResponse);
+    const result = parseAgentResponse(
+      out.structuredResponse,
+      out.messages,
+      resultSchema,
+      config.agent.maxOutputTokens,
+    );
     if (result.status === "done") {
       const validation = await validate(config, job.worktree, sandbox, signal);
       if (validation) result.tests = `Controller validation:\n${validation}`;
@@ -281,7 +314,12 @@ export async function reviewImplementation(
         signal,
       },
     );
-    const review = reviewSchema.parse(out.structuredResponse);
+    const review = parseAgentResponse(
+      out.structuredResponse,
+      out.messages,
+      reviewSchema,
+      config.agent.maxOutputTokens,
+    );
     if (review.status === "pass" && review.findings.length)
       return { ...review, status: "findings" };
     if (review.status === "findings" && review.findings.length === 0)

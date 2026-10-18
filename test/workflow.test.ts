@@ -16,6 +16,10 @@ import {
   validationDetails,
 } from "../src/workflow.js";
 import type { Job, JobStatus } from "../src/store.js";
+import { Store } from "../src/store.js";
+import { schema } from "../src/config.js";
+import type { GitHub } from "../src/github.js";
+import { workflow } from "../src/workflow.js";
 
 function job(status: JobStatus, outcome?: Job["outcome"]): Job {
   return {
@@ -52,6 +56,25 @@ test("only a merged completion gets the done label", () => {
   assert.equal(issuePhase(job("done", "merged")), "done");
   assert.equal(issuePhase(job("done", "closed")), "closed");
   assert.equal(issuePhase(job("done")), "closed");
+});
+
+test("optional reviewer graph compiles without colliding with the review state channel", () => {
+  const root = mkdtempSync(join(tmpdir(), "louibot-review-graph-"));
+  const store = new Store(root);
+  const config = schema.parse({
+    repository: "owner/repo",
+    model: "openai/gpt-6-luna",
+    agent: { inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.5 },
+    reviewer: { enabled: true },
+  });
+  try {
+    assert.doesNotThrow(() =>
+      workflow(root, config, store, {} as GitHub, new AbortController().signal),
+    );
+  } finally {
+    store.db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("bounded scheduler runs jobs in parallel up to its limit", async () => {

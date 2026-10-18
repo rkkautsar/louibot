@@ -14,9 +14,10 @@ export const schema = z
             !url.username &&
             !url.password &&
             !url.search &&
-            !url.hash
+            !url.hash &&
+            !url.pathname.replace(/\/+$/, "").endsWith("/chat/completions")
           );
-        }, "Use an HTTP(S) base URL without credentials, query, or fragment"),
+        }, "Use an HTTP(S) API base URL without credentials, query, or fragment; omit /chat/completions because Louibot appends it"),
         apiKeyEnv: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
         tokenLimitParameter: z
           .enum(["max_tokens", "max_completion_tokens"])

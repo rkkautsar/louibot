@@ -42,9 +42,9 @@ Cancellation preserves state. For a failed, blocked, or stopped job, post a new 
 
 ## OpenAI-compatible providers
 
-Choose `openai-compatible/<model-id>` with `--base-url` and `--api-key-env`. Use `--token-limit-parameter` and `--reasoning-effort` for provider-specific Chat Completions settings. The controller uses Chat Completions, including tool calling; the selected model must support function tools. Model IDs may include slashes. Keys remain in the host environment and are never written into configuration or passed to Docker.
+Choose `openai-compatible/<model-id>` with `--base-url` and `--api-key-env`. Set `--base-url` to the API root, such as `https://api.example.com/v1`; do not append `/chat/completions` because Louibot adds that route itself. Use `--token-limit-parameter` and `--reasoning-effort` for provider-specific Chat Completions settings. The selected model must support function tools. Model IDs may include slashes. Keys remain in the host environment and are never written into configuration or passed to Docker.
 
-Cloudflare AI Gateway with `openai/gpt-6-luna` was verified with `max_completion_tokens` and `reasoning_effort: none`. For that endpoint, start Louibot with the following options, supplying the two prices that match your Cloudflare account:
+Cloudflare AI Gateway with `openai/gpt-6-luna` was verified with `max_completion_tokens` and `reasoning_effort: none`. Use the account API root ending in `/ai/v1`; do not add `/chat/completions`. For that endpoint, start Louibot with the following options, supplying the two prices that match your Cloudflare account:
 
 ```sh
 louibot start \
