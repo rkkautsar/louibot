@@ -21,7 +21,6 @@ import { createHash, randomUUID } from "node:crypto";
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT = 1024 * 1024;
 export const MAX_SHELL_OUTPUT = 40_000;
-const MAX_SHELL_FILE_BYTES = 8 * 1024 * 1024;
 const HOST_COMMAND_TIMEOUT = 120_000;
 const SHELL_OUTPUT_MARKER =
   "\n\n[output truncated by Louibot; showing the beginning and end]\n\n";
@@ -51,7 +50,6 @@ export function buildShellCaptureCommand(
   const tail = Math.floor(available / 2);
   return [
     "set +e",
-    `ulimit -f ${Math.ceil(MAX_SHELL_FILE_BYTES / 512)} 2>/dev/null || true`,
     `output_file=${shellQuote(outputPath)}`,
     `eval ${shellQuote(command)} >\"$output_file\" 2>&1`,
     "status=$?",

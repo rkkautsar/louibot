@@ -1,10 +1,13 @@
 import { strict as assert } from "node:assert";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   mkdtemp,
   mkdir,
   readFile,
   readlink,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -21,6 +24,7 @@ import {
   truncateShellOutput,
 } from "../src/workspace.js";
 
+const execFileAsync = promisify(execFile);
 const roots: string[] = [];
 
 test("cache volumes are stable and safe for repository identifiers", () => {
@@ -44,8 +48,24 @@ test("large shell output leaves an agent-readable sandbox file", () => {
   assert.match(command, /eval/);
   assert.match(command, /hello/);
   assert.match(command, /\/tmp\/output\.log/);
-  assert.match(command, /ulimit -f/);
+  assert.doesNotMatch(command, /ulimit -f/);
   assert.match(command, /full output:/);
+});
+
+test("shell capture does not limit files written by the command", async () => {
+  const { root } = await fixture();
+  const largeFile = join(root, "large-package.bin");
+  const outputFile = join(root, "command-output.log");
+  const result = await execFileAsync("sh", [
+    "-lc",
+    buildShellCaptureCommand(
+      `dd if=/dev/zero of='${largeFile}' bs=1048576 count=10 status=none && printf 'installed'`,
+      outputFile,
+    ),
+  ]);
+
+  assert.equal(result.stdout, "installed");
+  assert.equal((await stat(largeFile)).size, 10 * 1024 * 1024);
 });
 
 test("incomplete sandbox stage is rebuilt before it can overwrite the worktree", async () => {
