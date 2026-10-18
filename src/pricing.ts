@@ -21,3 +21,31 @@ export function knownPricing(model: string): TokenPricing | undefined {
     ? { ...pricing, source: "OpenAI published standard token pricing" }
     : undefined;
 }
+
+export interface TokenRates {
+  inputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+}
+
+export function reviewerRates(options: {
+  model: string;
+  implementationModel: string;
+  savedModel?: string;
+  savedReviewerModel?: string;
+  hasSavedRates: boolean;
+  explicitRates?: TokenRates;
+  implementationRates: TokenRates;
+}): TokenRates | undefined {
+  if (options.explicitRates) return options.explicitRates;
+  const savedModel = options.savedReviewerModel ?? options.savedModel;
+  if (options.hasSavedRates && options.model === savedModel) return undefined;
+  if (options.model === options.implementationModel)
+    return options.implementationRates;
+  const pricing = knownPricing(options.model);
+  return pricing
+    ? {
+        inputUsdPerMillion: pricing.inputUsdPerMillion,
+        outputUsdPerMillion: pricing.outputUsdPerMillion,
+      }
+    : undefined;
+}

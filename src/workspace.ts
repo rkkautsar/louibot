@@ -5,8 +5,11 @@ import {
   lstat,
   mkdir,
   readdir,
+  readFile,
   rm,
+  rename,
   unlink,
+  writeFile,
   chmod,
   rmdir,
   readlink,
@@ -195,6 +198,50 @@ export async function copyWorkspaceToStage(
   await copyTree(source, destination, source);
 }
 
+const STAGE_MARKER_CONTENT = "louibot-stage-v1\n";
+
+async function isCompleteStage(stage: string): Promise<boolean> {
+  try {
+    const stageInfo = await lstat(stage);
+    if (!stageInfo.isDirectory() || stageInfo.isSymbolicLink())
+      throw new Error(`Unsafe sandbox staging path: ${stage}`);
+    const marker = `${stage}.complete`;
+    const markerInfo = await lstat(marker);
+    if (!markerInfo.isFile() || markerInfo.isSymbolicLink()) return false;
+    return (await readFile(marker, "utf8")) === STAGE_MARKER_CONTENT;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+export async function prepareSandboxStage(
+  worktree: string,
+  stage: string,
+): Promise<void> {
+  if (await isCompleteStage(stage)) return;
+
+  const marker = `${stage}.complete`;
+  const temporaryStage = `${stage}.tmp`;
+  await rm(stage, { recursive: true, force: true });
+  await rm(marker, { force: true });
+  await rm(temporaryStage, { recursive: true, force: true });
+  await mkdir(temporaryStage, { mode: 0o777 });
+  await chmod(temporaryStage, 0o777);
+  try {
+    await copyTree(worktree, temporaryStage, worktree, "", true);
+    await rename(temporaryStage, stage);
+    await writeFile(marker, STAGE_MARKER_CONTENT, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    await rm(temporaryStage, { recursive: true, force: true });
+    if (!(await isCompleteStage(stage).catch(() => false))) {
+      await rm(stage, { recursive: true, force: true });
+      await rm(marker, { force: true });
+    }
+    throw error;
+  }
+}
+
 async function removeEligible(path: string, prefix = ""): Promise<void> {
   let entries;
   try {
@@ -231,6 +278,7 @@ export async function syncWorkspaceFromStage(
 export class Sandbox {
   private readonly id: string;
   private stage?: string;
+  private stageReady = false;
   private started = false;
   private finished = false;
   private disposed = false;
@@ -254,20 +302,8 @@ export class Sandbox {
     if (this.started) return;
     this.stage = `${resolve(this.worktree)}.sandbox`;
     try {
-      let stageExists = true;
-      try {
-        const stageInfo = await lstat(this.stage);
-        if (!stageInfo.isDirectory() || stageInfo.isSymbolicLink())
-          throw new Error(`Unsafe sandbox staging path: ${this.stage}`);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        stageExists = false;
-      }
-      if (!stageExists) {
-        await mkdir(this.stage, { mode: 0o777 });
-        await chmod(this.stage, 0o777);
-        await copyTree(this.worktree, this.stage, this.worktree, "", true);
-      }
+      await prepareSandboxStage(this.worktree, this.stage);
+      this.stageReady = true;
       const hostUid =
         typeof process.getuid === "function" ? process.getuid() : 1000;
       const hostGid =
@@ -375,6 +411,7 @@ export class Sandbox {
       await this.docker([...args]);
       this.started = true;
     } catch (error) {
+      await this.docker(["rm", "-f", this.id]).catch(() => {});
       throw error;
     }
   }
@@ -465,7 +502,8 @@ export class Sandbox {
       await this.docker(["stop", this.id]).catch(() => {});
       this.started = false;
     }
-    if (!this.readOnly) await syncWorkspaceFromStage(this.stage, this.worktree);
+    if (!this.readOnly && this.stageReady)
+      await syncWorkspaceFromStage(this.stage, this.worktree);
     this.finished = true;
   }
 
@@ -479,7 +517,7 @@ export class Sandbox {
       this.log(`Could not remove sandbox container: ${String(error)}`);
     } finally {
       if (this.stage) {
-        if (!this.finished && !this.readOnly) {
+        if (!this.finished && !this.readOnly && this.stageReady) {
           try {
             await syncWorkspaceFromStage(this.stage, this.worktree);
           } catch (error) {
@@ -487,7 +525,10 @@ export class Sandbox {
           }
         }
         await rm(this.stage, { recursive: true, force: true });
+        await rm(`${this.stage}.complete`, { force: true });
+        await rm(`${this.stage}.tmp`, { recursive: true, force: true });
         this.stage = undefined;
+        this.stageReady = false;
       }
     }
   }

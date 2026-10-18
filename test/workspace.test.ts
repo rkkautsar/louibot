@@ -15,6 +15,7 @@ import {
   cacheVolumeName,
   buildShellCaptureCommand,
   copyWorkspaceToStage,
+  prepareSandboxStage,
   MAX_SHELL_OUTPUT,
   syncWorkspaceFromStage,
   truncateShellOutput,
@@ -45,6 +46,33 @@ test("large shell output leaves an agent-readable sandbox file", () => {
   assert.match(command, /\/tmp\/output\.log/);
   assert.match(command, /ulimit -f/);
   assert.match(command, /full output:/);
+});
+
+test("incomplete sandbox stage is rebuilt before it can overwrite the worktree", async () => {
+  const { root, worktree } = await fixture();
+  const stage = join(root, "worktree.sandbox");
+  await writeFile(join(worktree, "preserve.txt"), "host copy");
+  await mkdir(stage);
+  await writeFile(join(stage, "preserve.txt"), "partial stale copy");
+  await writeFile(`${stage}.tmp`, "stale temporary data");
+
+  await prepareSandboxStage(worktree, stage);
+  await writeFile(join(stage, "agent-change.txt"), "agent output");
+  await prepareSandboxStage(worktree, stage);
+
+  assert.equal(
+    await readFile(join(stage, "preserve.txt"), "utf8"),
+    "host copy",
+  );
+  assert.equal(
+    await readFile(join(stage, "agent-change.txt"), "utf8"),
+    "agent output",
+  );
+  await assert.rejects(readFile(`${stage}.tmp`));
+  assert.equal(
+    await readFile(`${stage}.complete`, "utf8"),
+    "louibot-stage-v1\n",
+  );
 });
 
 async function fixture(): Promise<{

@@ -104,6 +104,7 @@ test("reviews attach inline comments by review id and preserve line numbers", as
 test("implementation requests use an authorized exact command comment", async () => {
   const github = client((args) => {
     const endpoint = args[1];
+    if (endpoint === "user") return JSON.stringify({ login: "owner" });
     if (endpoint.includes("/issues?state=open"))
       return JSON.stringify([
         { number: 7, title: "Add feature", body: "Requirements" },
@@ -122,8 +123,16 @@ test("implementation requests use an authorized exact command comment", async ()
           user: { login: "owner" },
           created_at: "2026-10-16T01:00:00Z",
         },
+        {
+          id: 3,
+          body: "@louibot implement",
+          user: { login: "teammate" },
+          created_at: "2026-10-16T02:00:00Z",
+        },
       ]);
     if (endpoint.includes("/collaborators/owner/permission"))
+      return JSON.stringify({ permission: "write" });
+    if (endpoint.includes("/collaborators/teammate/permission"))
       return JSON.stringify({ permission: "write" });
     throw new Error(`Unexpected call: ${args.join(" ")}`);
   });
@@ -139,6 +148,7 @@ test("implementation requests use an authorized exact command comment", async ()
 test("revision command combines authorized review and unresolved inline feedback", async () => {
   const github = client((args) => {
     const endpoint = args[1];
+    if (endpoint === "user") return JSON.stringify({ login: "owner" });
     if (endpoint.includes("/pulls/5/comments?")) return JSON.stringify([]);
     if (endpoint.includes("/issues/5/comments?"))
       return JSON.stringify([
@@ -147,6 +157,12 @@ test("revision command combines authorized review and unresolved inline feedback
           body: "@louibot revise",
           user: { login: "owner" },
           created_at: "2026-10-16T02:00:00Z",
+        },
+        {
+          id: 31,
+          body: "@louibot revise",
+          user: { login: "teammate" },
+          created_at: "2026-10-16T03:00:00Z",
         },
       ]);
     if (endpoint.includes("/reviews?"))

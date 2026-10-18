@@ -10,7 +10,7 @@ import {
 import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { config, savedConfig } from "./config.js";
-import { knownPricing } from "./pricing.js";
+import { knownPricing, reviewerRates } from "./pricing.js";
 import { GitHub } from "./github.js";
 import { Store } from "./store.js";
 import { git } from "./workspace.js";
@@ -209,20 +209,43 @@ async function resolveConfig(options: StartOptions) {
     options.reviewerModel ??
     (savedReviewer.model as string | undefined) ??
     model;
-  const reviewerPricing =
-    options.reviewerInputPrice && options.reviewerOutputPrice
-      ? {
-          inputUsdPerMillion: Number(options.reviewerInputPrice),
-          outputUsdPerMillion: Number(options.reviewerOutputPrice),
-        }
-      : reviewerModel === model
-        ? undefined
-        : knownPricing(reviewerModel);
+  const reviewerEnabled =
+    options.review ?? (savedReviewer.enabled as boolean | undefined) ?? false;
+  const reviewerHasSavedRates =
+    savedReviewer.inputUsdPerMillion !== undefined &&
+    savedReviewer.outputUsdPerMillion !== undefined;
+  const reviewerSavedRatesMatch =
+    reviewerHasSavedRates &&
+    reviewerModel ===
+      ((savedReviewer.model as string | undefined) ??
+        (saved.model as string | undefined));
+  const reviewerPricing = reviewerRates({
+    model: reviewerModel,
+    implementationModel: model,
+    savedModel: saved.model as string | undefined,
+    savedReviewerModel: savedReviewer.model as string | undefined,
+    hasSavedRates: reviewerHasSavedRates,
+    explicitRates:
+      options.reviewerInputPrice && options.reviewerOutputPrice
+        ? {
+            inputUsdPerMillion: Number(options.reviewerInputPrice),
+            outputUsdPerMillion: Number(options.reviewerOutputPrice),
+          }
+        : undefined,
+    implementationRates: {
+      inputUsdPerMillion: Number(
+        agentOverrides.inputUsdPerMillion ?? savedAgent.inputUsdPerMillion,
+      ),
+      outputUsdPerMillion: Number(
+        agentOverrides.outputUsdPerMillion ?? savedAgent.outputUsdPerMillion,
+      ),
+    },
+  });
   if (
+    reviewerEnabled &&
     reviewerModel !== model &&
     !reviewerPricing &&
-    (savedReviewer.inputUsdPerMillion === undefined ||
-      (options.reviewerModel && savedReviewer.model !== options.reviewerModel))
+    !reviewerSavedRatesMatch
   )
     throw new Error(
       `No built-in pricing is available for reviewer ${reviewerModel}; pass --reviewer-input-price and --reviewer-output-price`,

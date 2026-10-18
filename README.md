@@ -69,7 +69,7 @@ One local worker runs up to `agent.maxConcurrentJobs` coding jobs in parallel; t
 
 ### Starting an issue
 
-Write the issue normally, then add a separate issue comment containing exactly `@louibot implement`. Louibot checks that the commenter has repository write, maintain, or admin permission before claiming the issue. The issue body remains the task specification; the command only starts the worker.
+Write the issue normally, then add a separate issue comment containing exactly `@louibot implement` from the GitHub account currently authenticated with `gh`. Louibot checks that account has repository write, maintain, or admin permission before claiming the issue. The issue body remains the task specification; the command only starts the worker. Authorized collaborators can still provide clarification replies and review feedback, but their comments do not trigger a run.
 
 If a draft PR is closed without merging, edit the issue with the clearer requirements and add another `@louibot implement` comment. Louibot starts a fresh attempt on a new retry branch and creates a new draft PR. The previous closed PR remains available for comparison. Use `louibot retry <issue>` for failed, blocked, or stopped jobs that do not have a closed PR.
 
@@ -89,7 +89,7 @@ Enable it with `louibot start --review` or `reviewer.enabled: true` in `.louibot
 
 Review the draft PR normally, including inline comments, and submit the review. Then add a separate PR conversation comment containing exactly `@louibot revise`.
 
-Louibot checks that the command author is authorized, reads unresolved review threads and submitted review summaries from authorized collaborators, resumes the same conversation/workspace, and pushes to the existing branch. The command is processed once; add another `@louibot revise` comment for a later revision. If no authorized review feedback is open, Louibot records that fact and does not invent a change. Use `retry` to recover failed or stopped jobs.
+The `@louibot revise` command must come from the GitHub account currently authenticated with `gh`, which must have repository write, maintain, or admin permission. Louibot reads unresolved review threads and submitted review summaries from authorized collaborators, resumes the same conversation/workspace, and pushes to the existing branch. The command is processed once; add another `@louibot revise` comment for a later revision. If no authorized review feedback is open, Louibot records that fact and does not invent a change. Use `retry` to recover failed or stopped jobs.
 
 Sandboxes use Docker bridge networking by default so commands can install dependencies and fetch documentation through the existing shell tool. Set `sandbox.network` to `none` when a repository does not need internet access. A prebuilt image with common dependencies can reduce setup time; configure `sandbox.image` for your repository.
 

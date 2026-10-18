@@ -582,6 +582,7 @@ export async function claimImplementationRequests(
       continue;
     }
     if (existing.status !== "done" || existing.outcome !== "closed") continue;
+    if (existing.events.includes(`implement:${request.commentId}`)) continue;
     const attempt = (existing.attempt ?? 1) + 1;
     store.save({
       ...existing,

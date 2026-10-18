@@ -132,8 +132,8 @@ export async function code(
     config.sandbox.network,
     config.repository,
   );
-  await sandbox.start();
   try {
+    await sandbox.start();
     const model = createModel(config);
     const agent = createAgent({
       model,
@@ -224,8 +224,8 @@ export async function reviewImplementation(
     config.repository,
     true,
   );
-  await sandbox.start();
   try {
+    await sandbox.start();
     const modelName = config.reviewer.model ?? config.model;
     const inputRate =
       config.reviewer.inputUsdPerMillion ?? config.agent.inputUsdPerMillion;

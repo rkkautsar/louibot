@@ -95,6 +95,15 @@ class GitHubApiError extends Error {
 export class GitHub {
   constructor(private readonly repo: string) {}
 
+  private authenticatedLogin?: Promise<string>;
+
+  private currentLogin(): Promise<string> {
+    this.authenticatedLogin ??= this.api<{ login: string }>("user").then(
+      (user) => user.login.toLowerCase(),
+    );
+    return this.authenticatedLogin;
+  }
+
   private async api<T>(endpoint: string, options: ApiOptions = {}): Promise<T> {
     const args = ["api", endpoint];
     if (options.method && options.method !== "GET")
@@ -189,12 +198,16 @@ export class GitHub {
         .filter((comment) => this.isImplementCommand(comment.body))
         .sort(
           (left, right) =>
-            Date.parse(left.created_at ?? "") -
-              Date.parse(right.created_at ?? "") || left.id - right.id,
+            Date.parse(right.created_at ?? "") -
+              Date.parse(left.created_at ?? "") || right.id - left.id,
         );
-      const trigger = candidates.at(-1);
-      if (trigger && (await this.authorized(trigger.user.login)))
+      for (const trigger of candidates) {
+        if (trigger.user.login.toLowerCase() !== (await this.currentLogin()))
+          continue;
+        if (!(await this.authorized(trigger.user.login))) continue;
         requests.push({ issue, commentId: trigger.id });
+        break;
+      }
     }
     return requests;
   }
@@ -221,7 +234,7 @@ export class GitHub {
     processed: string[],
   ): Promise<RevisionRequest | undefined> {
     const comments = await this.comments(pr);
-    const trigger = comments
+    const candidates = comments
       .filter(
         (comment) =>
           this.isReviseCommand(comment.body) &&
@@ -231,9 +244,17 @@ export class GitHub {
         (left, right) =>
           Date.parse(right.created_at ?? "") -
             Date.parse(left.created_at ?? "") || right.id - left.id,
-      )[0];
-    if (!trigger || !(await this.authorized(trigger.user.login)))
-      return undefined;
+      );
+    let trigger: CommentRecord | undefined;
+    for (const candidate of candidates) {
+      if (candidate.user.login.toLowerCase() !== (await this.currentLogin()))
+        continue;
+      if (await this.authorized(candidate.user.login)) {
+        trigger = candidate;
+        break;
+      }
+    }
+    if (!trigger) return undefined;
 
     const [reviews, threads] = await Promise.all([
       this.reviews(pr),
