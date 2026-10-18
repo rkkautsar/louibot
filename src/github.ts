@@ -57,7 +57,7 @@ export interface ImplementationRequest {
 export interface RevisionRequest {
   eventId: string;
   feedback: string;
-  commentEvents: string[];
+  consumedFeedbackEvents: string[];
 }
 
 type OpenReviewThreadComment = {
@@ -273,7 +273,11 @@ export class GitHub {
     }
     const acceptedReviews: ReviewRecord[] = [];
     for (const review of reviews) {
-      if (review.body.trim() && (await this.authorized(review.user.login)))
+      if (
+        review.body.trim() &&
+        !processed.includes(`review:${review.id}`) &&
+        (await this.authorized(review.user.login))
+      )
         acceptedReviews.push(review);
     }
     const acceptedThreads: OpenReviewThreadComment[] = [];
@@ -301,7 +305,8 @@ export class GitHub {
     ].join("\n\n");
     return {
       eventId: `pr-command:${trigger.id}`,
-      commentEvents: [
+      consumedFeedbackEvents: [
+        ...acceptedReviews.map((review) => `review:${review.id}`),
         ...acceptedDiscussion.map((comment) => `pr-comment:${comment.id}`),
         ...acceptedThreads.map(
           (comment) => `review-comment:${comment.databaseId}`,
@@ -309,7 +314,7 @@ export class GitHub {
       ],
       feedback:
         text ||
-        "The revise command was received, but no unresolved authorized review feedback was found. Do not invent changes.",
+        "The revise command was received, but no new authorized review feedback or unresolved inline comments were found. Do not invent changes.",
     };
   }
 

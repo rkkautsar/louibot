@@ -107,7 +107,7 @@ function runDetails(metadata?: RunMetadata): string {
     `- Agent time: ${formatDuration(metadata.codingSeconds)}`,
     `- Estimated spend: ${cost}`,
     "",
-    "The spend is a controller-side reservation based on configured token rates; provider billing may differ.",
+    "Spend is estimated from provider-reported token usage when available, or the conservative reservation otherwise, using configured token rates. Provider billing may differ.",
   ].join("\n");
 }
 
@@ -274,7 +274,11 @@ async function reviewFeedback(
     ? {
         resume: {
           text: request.feedback,
-          events: [...job.events, request.eventId, ...request.commentEvents],
+          events: [
+            ...job.events,
+            request.eventId,
+            ...request.consumedFeedbackEvents,
+          ],
         },
       }
     : {};

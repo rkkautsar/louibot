@@ -126,9 +126,10 @@
             <h3>The agent does the work</h3>
             <p>
               It reads repository instructions, edits through one shell tool,
-              installs dependencies, and runs discovered checks. An optional
-              fresh-context reviewer can inspect the full repository around the
-              diff in a read-only, offline sandbox before publication.
+              installs dependencies, and runs discovered checks. If controller
+              checks fail, it gets one repair attempt before publication. An
+              optional fresh-context reviewer can inspect the full repository
+              around the diff in a read-only, offline sandbox.
             </p>
             <span class="card-line"></span>
           </article>
@@ -175,7 +176,8 @@
             <span>↳</span>
             <p>
               <strong>Inspectable state.</strong> A small CLI shows active jobs,
-              logs, costs, pauses, and failures.
+              worker status, logs, estimated costs reconciled to reported token
+              usage when available, pauses, and failures.
             </p>
           </div>
         </div>
@@ -216,6 +218,11 @@ louibot start --model openai/gpt-6-luna</code></pre>
                   endpoints are supported. Keys stay on the host. Pass provider,
                   model, limits, labels, and sandbox options to
                   <code>start</code>; YAML is optional for saved defaults.
+                  <code>doctor</code> checks model tool calling and sandbox
+                  command execution. <code>start</code> prints its validation
+                  plan; add <code>--require-validation</code> to require
+                  controller checks. After a failed check, the agent gets one
+                  focused repair attempt before publication.
                 </p>
               </div>
             </div>

@@ -34,6 +34,28 @@ const MAX_VALIDATION_OUTPUT = 24_000;
 const TOKEN_ESTIMATE_OVERHEAD = 4_096;
 const MALFORMED_TOOL_CALL = "LOUIBOT_MALFORMED_TOOL_CALL";
 
+function reportedTokenUsage(
+  response: unknown,
+): { inputTokens: number; outputTokens: number } | undefined {
+  if (!response || typeof response !== "object") return undefined;
+  const usage = (response as { usage_metadata?: unknown }).usage_metadata;
+  if (!usage || typeof usage !== "object") return undefined;
+  const { input_tokens: inputTokens, output_tokens: outputTokens } = usage as {
+    input_tokens?: unknown;
+    output_tokens?: unknown;
+  };
+  if (
+    typeof inputTokens !== "number" ||
+    !Number.isFinite(inputTokens) ||
+    inputTokens < 0 ||
+    typeof outputTokens !== "number" ||
+    !Number.isFinite(outputTokens) ||
+    outputTokens < 0
+  )
+    return undefined;
+  return { inputTokens, outputTokens };
+}
+
 function malformedToolCallError(maxOutputTokens: number): Error {
   const error = new Error(
     `The model returned a malformed or truncated tool call before producing a Louibot result. Louibot will make one recovery attempt; repeated failures may mean the response exceeded the ${maxOutputTokens}-token output limit. Increase --max-output-tokens and retry if needed.`,
@@ -97,25 +119,38 @@ async function validate(
   root: string,
   sandbox: Sandbox,
   signal: AbortSignal,
-): Promise<string | undefined> {
+): Promise<{
+  output?: string;
+  failures: string[];
+}> {
   const commands =
     config.validation.commands.length > 0
       ? config.validation.commands
       : await discoverValidationCommands(root);
-  if (!commands.length) return undefined;
+  if (!commands.length) {
+    if (config.validation.required)
+      throw new Error(
+        "Controller validation is required but no commands are configured or discoverable. Set validation.commands or use --validation-command.",
+      );
+    return { failures: [] };
+  }
   const output: string[] = [];
+  const failures: string[] = [];
   for (const command of commands) {
     try {
       const result = await sandbox.shell(command, signal);
       const bounded = result.trim().slice(-6_000);
       output.push(`$ ${command}\n${bounded}`.trim());
     } catch (error) {
-      throw new Error(
-        `Controller validation failed for '${command}': ${String(error).slice(-8_000)}`,
-      );
+      const details = String(error).slice(-8_000);
+      failures.push(`$ ${command} (failed)\n${details}`);
+      output.push(`$ ${command} (failed)\n${details}`);
     }
   }
-  return output.join("\n\n").slice(-MAX_VALIDATION_OUTPUT);
+  return {
+    output: output.join("\n\n").slice(-MAX_VALIDATION_OUTPUT),
+    failures,
+  };
 }
 
 const prompt = `You are Louibot, a competent junior engineer implementing one small GitHub issue.
@@ -164,6 +199,23 @@ function budgetMiddleware(
       store.save(job);
       store.log(job.issue, `${role}.model.start`, { reservedUsd: reserve });
       const response = await invokeModel(request);
+      const usage = reportedTokenUsage(response);
+      if (usage) {
+        const usageEstimate =
+          (usage.inputTokens * rates.input) / 1e6 +
+          (usage.outputTokens * rates.output) / 1e6;
+        job.cost = Math.max(0, job.cost - reserve + usageEstimate);
+        store.save(job);
+        store.log(job.issue, `${role}.model.usage`, {
+          ...usage,
+          reservedUsd: reserve,
+          estimatedUsd: usageEstimate,
+        });
+      } else {
+        store.log(job.issue, `${role}.model.usage_unavailable`, {
+          reservedUsd: reserve,
+        });
+      }
       store.log(job.issue, `${role}.model.end`, response);
       return response;
     },
@@ -235,34 +287,86 @@ export async function code(
         reviewerFindings: job.reviewerFeedback,
       }),
     };
-    const result = await invokeWithMalformedToolCallRecovery(
-      (recovery) =>
-        agent.invoke(
-          {
-            messages: [
-              recovery
-                ? {
-                    role: "user",
-                    content:
-                      "Your previous response contained a malformed or truncated tool call and was not accepted. Make one concise recovery attempt and return the required structured Louibot result. Continue from the existing conversation and workspace; do not repeat completed shell commands unless needed.",
-                  }
-                : taskMessage,
-            ],
-          },
-          invokeConfig,
-        ),
-      (out) =>
-        parseAgentResponse(
-          out.structuredResponse,
-          out.messages,
-          resultSchema,
-          config.agent.maxOutputTokens,
-        ),
-    );
+    const invokeImplementation = (message: string) =>
+      invokeWithMalformedToolCallRecovery(
+        (recovery) =>
+          agent.invoke(
+            {
+              messages: [
+                recovery
+                  ? {
+                      role: "user",
+                      content:
+                        "Your previous response contained a malformed or truncated tool call and was not accepted. Make one concise recovery attempt and return the required structured Louibot result. Continue from the existing conversation and workspace; do not repeat completed shell commands unless needed.",
+                    }
+                  : { role: "user" as const, content: message },
+              ],
+            },
+            invokeConfig,
+          ),
+        (out) =>
+          parseAgentResponse(
+            out.structuredResponse,
+            out.messages,
+            resultSchema,
+            config.agent.maxOutputTokens,
+          ),
+      );
+    let result = await invokeImplementation(taskMessage.content);
     if (result.status === "done") {
       const validation = await validate(config, job.worktree, sandbox, signal);
-      if (validation) result.tests = `Controller validation:\n${validation}`;
-      else {
+      if (validation.failures.length) {
+        const failureContext = validation.failures
+          .join("\n\n")
+          .slice(-MAX_VALIDATION_OUTPUT);
+        if (signal.aborted || store.stopped(job.issue))
+          throw new Error("Job stopped during controller validation");
+        try {
+          // A timed-out command kills the container. Restart it from its
+          // existing stage so the implementation survives the repair pass.
+          await sandbox.start();
+        } catch (error) {
+          throw new Error(
+            `Controller validation failed and the sandbox could not restart for repair.\n${failureContext}\n${String(error).slice(-2_000)}`,
+            { cause: error },
+          );
+        }
+        store.log(job.issue, "validation.repair", {
+          failures: failureContext,
+          attempt: 1,
+        });
+        result = await invokeImplementation(
+          [
+            "The controller ran the configured validation commands after your implementation. These commands failed:",
+            "",
+            failureContext,
+            "",
+            "Inspect the failures, make a focused repair if they are caused by your changes, and return the structured result. Run the relevant checks yourself before reporting done. This is the only automatic repair attempt; the controller will run all configured validation commands once more.",
+          ].join("\n"),
+        );
+        if (result.status !== "done") {
+          throw new Error(
+            `Validation repair did not complete successfully (status: ${result.status}).\n${failureContext}`,
+          );
+        }
+        const retriedValidation = await validate(
+          config,
+          job.worktree,
+          sandbox,
+          signal,
+        );
+        if (retriedValidation.failures.length) {
+          const retryFailureContext = retriedValidation.failures
+            .join("\n\n")
+            .slice(-MAX_VALIDATION_OUTPUT);
+          throw new Error(
+            `Controller validation still failed after one repair attempt.\n${retryFailureContext}`,
+          );
+        }
+        result.tests = `Controller validation (passed after one repair attempt):\n${retriedValidation.output}`;
+      } else if (validation.output) {
+        result.tests = `Controller validation:\n${validation.output}`;
+      } else {
         result.tests = `No controller validation commands discovered. Agent-reported results:\n${result.tests}`;
       }
     }

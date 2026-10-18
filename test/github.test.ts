@@ -271,7 +271,7 @@ test("revision command combines authorized PR discussion, review, and inline fee
 
   assert.deepEqual(await github.revisionCommand(5, []), {
     eventId: "pr-command:30",
-    commentEvents: ["pr-comment:32", "review-comment:20"],
+    consumedFeedbackEvents: ["review:10", "pr-comment:32", "review-comment:20"],
     feedback:
       "@teammate PR discussion: Please keep this compatible with older clients.\n\n@reviewer review: Please add coverage\n\n@reviewer inline (src/a.ts:7): Fix this line",
   });

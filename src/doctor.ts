@@ -1,8 +1,9 @@
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { constants } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { config, type Config } from "./config.js";
 import { redactErrorText } from "./errors.js";
 import { createModel } from "./model.js";
@@ -10,7 +11,8 @@ import {
   discoverSandboxImage,
   discoverValidationCommands,
 } from "./discovery.js";
-import { git } from "./workspace.js";
+import { git, Sandbox } from "./workspace.js";
+import { z } from "zod";
 
 const execFileAsync = promisify(execFile);
 // Keep the connectivity probe small, but leave enough room for providers that
@@ -56,18 +58,53 @@ export function modelCredentialSource(repositoryConfig: Config): string {
 
 export async function probeModelAccess(
   repositoryConfig: Config,
-  invoke: () => Promise<unknown> = () =>
-    createModel(
-      repositoryConfig,
-      repositoryConfig.model,
-      MODEL_PROBE_MAX_TOKENS,
-    ).invoke("Reply with OK.", { signal: AbortSignal.timeout(20_000) }),
+  invoke?: () => Promise<unknown>,
 ): Promise<string> {
   const envName = modelKeyEnv(repositoryConfig);
   if (!process.env[envName]) throw new Error(`${envName} is not set`);
   try {
-    // The probe uses the same host-side credential and route as the agent.
-    await invoke();
+    // Use the same host-side credential and route, and require a tool call
+    // because issue implementation depends on provider tool-call support.
+    const response = await (
+      invoke ??
+      (() =>
+        createModel(
+          repositoryConfig,
+          repositoryConfig.model,
+          MODEL_PROBE_MAX_TOKENS,
+        )
+          .bindTools([
+            {
+              name: "louibot_doctor_probe",
+              description: "Return the requested marker as a tool argument.",
+              schema: z.object({ marker: z.string() }),
+            },
+          ])
+          .invoke(
+            "Call louibot_doctor_probe exactly once with marker LOUIBOT_DOCTOR_OK.",
+            { signal: AbortSignal.timeout(20_000) },
+          ))
+    )();
+    if (!invoke) {
+      if (!response || typeof response !== "object")
+        throw new Error("provider returned no tool call");
+      const toolCalls = (response as { tool_calls?: unknown }).tool_calls;
+      const validToolCall =
+        Array.isArray(toolCalls) &&
+        toolCalls.some((call) => {
+          if (!call || typeof call !== "object") return false;
+          const candidate = call as {
+            name?: unknown;
+            args?: { marker?: unknown };
+          };
+          return (
+            candidate.name === "louibot_doctor_probe" &&
+            candidate.args?.marker === "LOUIBOT_DOCTOR_OK"
+          );
+        });
+      if (!validToolCall)
+        throw new Error("provider returned no expected tool call");
+    }
   } catch (error) {
     throw new Error(
       `Request failed using ${envName}; check the selected key, endpoint, model access, and provider permissions (${cleanError(error)})`,
@@ -75,6 +112,32 @@ export async function probeModelAccess(
     );
   }
   return `request succeeded using ${envName} (value hidden)`;
+}
+
+async function probeSandbox(
+  image: string,
+  repository: string,
+): Promise<string> {
+  const root = await mkdtemp(resolve(tmpdir(), "louibot-doctor-"));
+  const sandbox = new Sandbox(
+    image,
+    root,
+    10,
+    () => {},
+    "none",
+    repository,
+    true,
+  );
+  try {
+    await sandbox.start();
+    const output = await sandbox.shell("printf 'LOUIBOT_SANDBOX_OK'");
+    if (output.trim() !== "LOUIBOT_SANDBOX_OK")
+      throw new Error("sandbox command returned an unexpected result");
+    return "isolated container started and ran a harmless command";
+  } finally {
+    await sandbox.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
 }
 
 function checks(
@@ -151,6 +214,11 @@ function checks(
       },
     },
     {
+      label: "Sandbox execution",
+      required: true,
+      run: () => probeSandbox(image, repositoryConfig.repository),
+    },
+    {
       label: "Model API key",
       required: true,
       run: async () => {
@@ -160,7 +228,7 @@ function checks(
       },
     },
     {
-      label: "Model API access",
+      label: "Model tool calling",
       required: true,
       run: async () => probeModelAccess(repositoryConfig),
     },
@@ -175,10 +243,14 @@ function checks(
     },
     {
       label: "Validation discovery",
+      required:
+        validationCommands.length > 0 || !repositoryConfig.validation.required,
       run: async () =>
         validationCommands.length
           ? validationCommands.join(", ")
-          : "no repository validation command discovered",
+          : repositoryConfig.validation.required
+            ? "required, but no controller validation command was configured or discovered"
+            : "no controller validation command discovered (allowed)",
     },
     {
       label: "Sandbox network",

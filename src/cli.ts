@@ -17,6 +17,7 @@ import { git } from "./workspace.js";
 import { formatDuration, tick } from "./workflow.js";
 import { runDoctor } from "./doctor.js";
 import { formatDiagnostic } from "./errors.js";
+import { discoverValidationCommands } from "./discovery.js";
 const cli = new Command()
   .name("louibot")
   .description("Assign an issue. Get a draft PR.");
@@ -51,6 +52,8 @@ interface StartOptions {
   sandboxNetwork?: "bridge" | "none";
   validationCommand?: string[];
   clearValidationCommands?: boolean;
+  requireValidation?: boolean;
+  allowNoValidation?: boolean;
   clearEndpoint?: boolean;
 }
 
@@ -111,9 +114,14 @@ function addStartOptions(command: Command) {
       (command: string, commands: string[] = []) => [...commands, command],
       [],
     )
+    .option("--clear-validation-commands", "Use automatic validation discovery")
     .option(
-      "--clear-validation-commands",
-      "Use automatic validation discovery",
+      "--require-validation",
+      "Fail if no controller validation commands are configured or discovered",
+    )
+    .option(
+      "--allow-no-validation",
+      "Allow jobs without controller validation (overrides saved requirement)",
     );
 }
 
@@ -137,6 +145,8 @@ async function resolveConfig(options: StartOptions) {
     throw new Error(
       "Use either --clear-validation-commands or --validation-command",
     );
+  if (options.requireValidation && options.allowNoValidation)
+    throw new Error("Use either --require-validation or --allow-no-validation");
   if (
     options.clearEndpoint &&
     (options.baseUrl ||
@@ -286,11 +296,20 @@ async function resolveConfig(options: StartOptions) {
       commandTimeoutSeconds: numeric(options.commandTimeoutSeconds),
       network: options.sandboxNetwork,
     }),
-    validation: options.clearValidationCommands
-      ? { commands: [] }
-      : options.validationCommand?.length
-        ? { commands: options.validationCommand }
-        : {},
+    validation: {
+      ...(options.clearValidationCommands
+        ? { commands: [] }
+        : options.validationCommand?.length
+          ? { commands: options.validationCommand }
+          : {}),
+      ...defined({
+        required: options.requireValidation
+          ? true
+          : options.allowNoValidation
+            ? false
+            : undefined,
+      }),
+    },
   };
   return config(repositoryRoot, overrides);
 }
@@ -305,6 +324,32 @@ addStartOptions(cli.command("doctor")).action(async (options: StartOptions) => {
 });
 cli.command("status").action(() => {
   const store = new Store(stateDirectory);
+  let worker = "not running";
+  try {
+    const pid = Number(
+      readFileSync(`${stateDirectory}/worker.lock`, "utf8").trim(),
+    );
+    if (!Number.isSafeInteger(pid) || pid <= 0) {
+      worker = "unknown (worker lock has an invalid PID)";
+    } else {
+      try {
+        process.kill(pid, 0);
+        worker = `running (PID ${pid})`;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        worker =
+          code === "ESRCH"
+            ? `stale lock (PID ${pid} is not running)`
+            : code === "EPERM"
+              ? `running (PID ${pid}; permission check denied)`
+              : `unknown (could not inspect PID ${pid})`;
+      }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+      worker = "unknown (could not read worker lock)";
+  }
+  console.log(`Worker: ${worker}`);
   console.table(
     store.all().map((job) => ({
       issue: job.issue,
@@ -433,7 +478,20 @@ async function runWorker(repositoryConfig: ReturnType<typeof config>) {
 }
 
 addStartOptions(cli.command("start")).action(async (options: StartOptions) => {
-  await runWorker(await resolveConfig(options));
+  const repositoryConfig = await resolveConfig(options);
+  const validationCommands = repositoryConfig.validation.commands.length
+    ? repositoryConfig.validation.commands
+    : await discoverValidationCommands(repositoryRoot);
+  console.log(
+    validationCommands.length
+      ? `Controller validation: ${validationCommands.join(", ")}`
+      : `Controller validation: none discovered${repositoryConfig.validation.required ? " (required; start stopped)" : " (allowed)"}`,
+  );
+  if (repositoryConfig.validation.required && !validationCommands.length)
+    throw new Error(
+      "Validation is required but no commands are configured or discovered. Set validation.commands or pass --validation-command.",
+    );
+  await runWorker(repositoryConfig);
 });
 cli.parseAsync().catch((error) => {
   console.error(formatDiagnostic(error));

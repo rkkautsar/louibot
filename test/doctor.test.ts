@@ -86,8 +86,21 @@ test("doctor gives the connectivity probe enough output budget for Luna", async 
         choices: [
           {
             index: 0,
-            message: { role: "assistant", content: "OK" },
-            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "doctor-tool-call",
+                  type: "function",
+                  function: {
+                    name: "louibot_doctor_probe",
+                    arguments: '{"marker":"LOUIBOT_DOCTOR_OK"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
           },
         ],
       }),

@@ -298,10 +298,12 @@ export class Sandbox {
 
   async start(): Promise<void> {
     if (this.started) return;
-    this.stage = `${resolve(this.worktree)}.sandbox`;
     try {
-      await prepareSandboxStage(this.worktree, this.stage);
-      this.stageReady = true;
+      if (!this.stage) {
+        this.stage = `${resolve(this.worktree)}.sandbox`;
+        await prepareSandboxStage(this.worktree, this.stage);
+        this.stageReady = true;
+      }
       const hostUid =
         typeof process.getuid === "function" ? process.getuid() : 1000;
       const hostGid =
@@ -461,8 +463,15 @@ export class Sandbox {
           tail = (tail + text).slice(-tailLength);
         }
       };
-      const stopContainer = () =>
-        this.docker(["kill", this.id]).catch(() => "");
+      const stopContainer = async () => {
+        try {
+          await this.docker(["kill", this.id]);
+        } catch {
+          // The container may already have stopped with the exec process.
+        } finally {
+          this.started = false;
+        }
+      };
       const abort = () => {
         child.kill("SIGTERM");
         void stopContainer().finally(() =>

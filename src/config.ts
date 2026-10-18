@@ -76,8 +76,9 @@ export const schema = z
     validation: z
       .object({
         commands: z.array(z.string().min(1).max(2000)).max(20).default([]),
+        required: z.boolean().default(false),
       })
-      .default({ commands: [] }),
+      .default({ commands: [], required: false }),
   })
   .superRefine((config, context) => {
     if (config.model.startsWith("openai-compatible/") && !config.endpoint)
