@@ -21,6 +21,9 @@ function fixture(status: JobStatus = "failed") {
     events: ["event:1"],
     feedback: "failure",
     rounds: 2,
+    errorCode: "EAI_AGAIN",
+    error: "Temporary network failure",
+    remediation: "Check network and retry",
   };
   store.save(job);
   return { dir, store, job };
@@ -50,11 +53,15 @@ test("retry preserves accumulated job history and clears the stop flag", () => {
     assert.equal(retried.status, "queued");
     assert.equal(retried.retryRequested, true);
     assert.equal(retried.cost, job.cost);
-    assert.deepEqual(retried.events, job.events);
+    assert.deepEqual(retried.events.slice(0, job.events.length), job.events);
+    assert.match(retried.events.at(-1)!, /^retry:/);
     assert.equal(retried.worktree, job.worktree);
     assert.equal(retried.revision, job.revision);
     assert.equal(retried.rounds, job.rounds);
     assert.equal(retried.feedback, job.feedback);
+    assert.equal(retried.error, undefined);
+    assert.equal(retried.errorCode, undefined);
+    assert.equal(retried.remediation, undefined);
   } finally {
     store.db.close();
     rmSync(dir, { recursive: true, force: true });

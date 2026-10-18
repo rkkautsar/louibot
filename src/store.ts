@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 export interface Job {
   issue: number;
@@ -24,7 +25,9 @@ export interface Job {
   feedback: string;
   rounds: number;
   retryRequested?: boolean;
+  errorCode?: string;
   error?: string;
+  remediation?: string;
   outcome?: "merged" | "closed";
 }
 
@@ -103,8 +106,10 @@ export class Store {
     job.status = "queued";
     job.retryRequested = true;
     job.error = undefined;
-    if (triggerEvent && !job.events.includes(triggerEvent))
-      job.events.push(triggerEvent);
+    job.errorCode = undefined;
+    job.remediation = undefined;
+    const retryEvent = triggerEvent ?? `retry:${randomUUID()}`;
+    if (!job.events.includes(retryEvent)) job.events.push(retryEvent);
     job.last = new Date().toISOString();
     this.save(job);
     this.log(issue, "state", "queued");

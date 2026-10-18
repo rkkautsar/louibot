@@ -16,6 +16,7 @@ import { Store } from "./store.js";
 import { git } from "./workspace.js";
 import { formatDuration, tick } from "./workflow.js";
 import { runDoctor } from "./doctor.js";
+import { formatDiagnostic } from "./errors.js";
 const cli = new Command()
   .name("louibot")
   .description("Assign an issue. Get a draft PR.");
@@ -314,7 +315,10 @@ cli.command("status").action(() => {
       agentTime: formatDuration(job.codingSeconds),
       estimatedCostUsd: job.cost,
       last: job.last,
-      detail: (job.error ?? job.feedback).slice(0, 120),
+      errorCode: job.errorCode,
+      error: job.error?.slice(0, 300),
+      nextStep: job.remediation,
+      detail: job.error ? undefined : job.feedback.slice(0, 120),
     })),
   );
   store.db.close();
@@ -357,27 +361,42 @@ cli
     } while (options.follow);
   });
 async function runWorker(repositoryConfig: ReturnType<typeof config>) {
-  const store = new Store(stateDirectory),
-    lockPath = `${stateDirectory}/worker.lock`;
+  const lockPath = `${stateDirectory}/worker.lock`;
+  let lockDescriptor: number | undefined;
+  let lockCreated = false;
+  let store: Store | undefined;
   try {
-    const lockDescriptor = openSync(lockPath, "wx", 0o600);
-    writeFileSync(lockDescriptor, String(process.pid));
-    closeSync(lockDescriptor);
-  } catch {
-    const workerPid = Number(readFileSync(lockPath, "utf8"));
     try {
-      process.kill(workerPid, 0);
-    } catch {
-      unlinkSync(lockPath);
-      throw new Error("Removed stale worker lock; run start again");
+      lockDescriptor = openSync(lockPath, "wx", 0o600);
+      lockCreated = true;
+      writeFileSync(lockDescriptor, String(process.pid));
+      closeSync(lockDescriptor);
+      lockDescriptor = undefined;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const lockContents = readFileSync(lockPath, "utf8").trim();
+      const workerPid = Number(lockContents);
+      if (!Number.isSafeInteger(workerPid) || workerPid <= 0)
+        throw new Error(
+          `Worker lock ${lockPath} does not contain a valid process ID; inspect it and remove it only if no Louibot worker is running.`,
+        );
+      try {
+        process.kill(workerPid, 0);
+      } catch (processError) {
+        if ((processError as NodeJS.ErrnoException).code !== "ESRCH")
+          throw processError;
+        unlinkSync(lockPath);
+        throw new Error(
+          `Removed stale worker lock for PID ${workerPid}; start Louibot again.`,
+        );
+      }
+      throw new Error(`Worker already running (PID ${workerPid})`);
     }
-    throw new Error(`Worker already running (PID ${workerPid})`);
-  }
-  const shutdownController = new AbortController();
-  const github = new GitHub(repositoryConfig.repository);
-  process.once("SIGINT", () => shutdownController.abort());
-  process.once("SIGTERM", () => shutdownController.abort());
-  try {
+    store = new Store(stateDirectory);
+    const shutdownController = new AbortController();
+    const github = new GitHub(repositoryConfig.repository);
+    process.once("SIGINT", () => shutdownController.abort());
+    process.once("SIGTERM", () => shutdownController.abort());
     console.log(`Watching ${repositoryConfig.repository}`);
     while (!shutdownController.signal.aborted) {
       try {
@@ -389,7 +408,8 @@ async function runWorker(repositoryConfig: ReturnType<typeof config>) {
           github,
         );
       } catch (error) {
-        console.error(String(error));
+        const timestamp = new Date().toISOString();
+        console.error(`[${timestamp}] Poll failed\n${formatDiagnostic(error)}`);
       }
       await sleep(
         repositoryConfig.github.pollIntervalSeconds * 1000,
@@ -400,8 +420,15 @@ async function runWorker(repositoryConfig: ReturnType<typeof config>) {
       ).catch(() => {});
     }
   } finally {
-    store.db.close();
-    unlinkSync(lockPath);
+    if (lockDescriptor !== undefined) closeSync(lockDescriptor);
+    store?.db.close();
+    if (lockCreated) {
+      try {
+        unlinkSync(lockPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
   }
 }
 
@@ -409,6 +436,6 @@ addStartOptions(cli.command("start")).action(async (options: StartOptions) => {
   await runWorker(await resolveConfig(options));
 });
 cli.parseAsync().catch((error) => {
-  console.error(error.message);
+  console.error(formatDiagnostic(error));
   process.exitCode = 1;
 });

@@ -179,11 +179,11 @@ test("review recursion failures get a clear PR-safe skip reason", () => {
         name: "GraphRecursionError",
       }),
     ),
-    "Review stopped at its configured step limit; see local logs for the error details.",
+    "Review stopped at its configured step limit; raise --reviewer-max-steps, then post @louibot revise if another review pass is useful. See local logs for the error details.",
   );
   assert.equal(
     reviewerSkipSummary(new Error("Provider request failed")),
-    "Review request failed; see local logs for the error details.",
+    "Review request failed; run louibot doctor and inspect local logs for the error details.",
   );
 });
 
@@ -198,7 +198,7 @@ test("skipped reviewer publication shows its configured step limit", () => {
       reviewerMaxSteps: 24,
       reviewStatus: "skipped",
       reviewSummary:
-        "Review stopped at its configured step limit; see local logs for the error details.",
+        "Review stopped at its configured step limit; raise --reviewer-max-steps, then post @louibot revise if another review pass is useful. See local logs for the error details.",
     },
   );
   assert.match(

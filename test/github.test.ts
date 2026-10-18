@@ -59,6 +59,44 @@ test("authorization allows write roles and fails closed on lookup errors", async
   assert.equal(await github.authorized("missing"), false);
 });
 
+test("failure comments use an idempotency marker so retries do not duplicate them", async () => {
+  let savedComment: { id: number; body: string } | undefined;
+  let posts = 0;
+  const github = client((args) => {
+    const [method, endpoint, serializedBody] = args;
+    if (endpoint.includes("/comments") && method === "GET")
+      return JSON.stringify(savedComment ? [savedComment] : []);
+    if (endpoint.includes("/comments") && method === "POST") {
+      posts++;
+      savedComment = {
+        id: 71,
+        body: JSON.parse(serializedBody!).body,
+      };
+      return JSON.stringify(savedComment);
+    }
+    throw new Error(`Unexpected GitHub request: ${args.join(" ")}`);
+  });
+
+  assert.equal(
+    await github.comment(
+      7,
+      "Failure details and next step",
+      "louibot:failure:7",
+    ),
+    71,
+  );
+  assert.equal(
+    await github.comment(
+      7,
+      "Failure details and next step",
+      "louibot:failure:7",
+    ),
+    71,
+  );
+  assert.equal(posts, 1);
+  assert.match(savedComment!.body, /<!-- louibot:failure:7 -->/);
+});
+
 test("reviews attach inline comments by review id and preserve line numbers", async () => {
   const github = client((args) => {
     const endpoint = args[1];

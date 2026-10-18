@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
 import { config, type Config } from "./config.js";
+import { redactErrorText } from "./errors.js";
 import { createModel } from "./model.js";
 import {
   discoverSandboxImage,
@@ -20,25 +21,7 @@ type Check = {
 };
 
 export function cleanError(error: unknown): string {
-  let message = String(error).replace(/https?:\/\/[^\s]+/g, "<url>");
-  const secretValues = Object.entries(process.env)
-    .filter(
-      ([name, value]) =>
-        /(?:KEY|TOKEN|SECRET|PASSWORD)/i.test(name) && Boolean(value),
-    )
-    .map(([, value]) => value!);
-  for (const secret of secretValues)
-    message = message.split(secret).join("[REDACTED]");
-  return message
-    .replace(
-      /((?:api[_-]?key|token|password|secret|key)\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-      "$1[REDACTED]",
-    )
-    .replace(/\bBearer\s+[^\s,;]+/gi, "Bearer [REDACTED]")
-    .replace(
-      /\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+)\b/g,
-      "[REDACTED]",
-    );
+  return redactErrorText(error);
 }
 
 async function command(

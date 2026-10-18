@@ -13,6 +13,7 @@ import type { Config } from "./config.js";
 import { Store, type Job, type JobStatus } from "./store.js";
 import { GitHub } from "./github.js";
 import { prepare, git, cleanup } from "./workspace.js";
+import { diagnoseError } from "./errors.js";
 import {
   code,
   reviewImplementation,
@@ -71,8 +72,15 @@ export function reviewerSkipSummary(error: unknown): string {
     (error.name === "GraphRecursionError" ||
       /recursion limit/i.test(error.message))
   )
-    return "Review stopped at its configured step limit; see local logs for the error details.";
-  return "Review request failed; see local logs for the error details.";
+    return "Review stopped at its configured step limit; raise --reviewer-max-steps, then post @louibot revise if another review pass is useful. See local logs for the error details.";
+  return "Review request failed; run louibot doctor and inspect local logs for the error details.";
+}
+
+function githubSafeText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export function formatDuration(seconds: number | undefined): string {
@@ -358,7 +366,7 @@ export function workflow(
     try {
       await github.setIssuePhase(job.issue, issuePhase(job), config.github);
     } catch (error) {
-      store.log(job.issue, "labels.error", String(error));
+      store.log(job.issue, "labels.error", diagnoseError(error));
     }
     return job;
   };
@@ -375,6 +383,8 @@ export function workflow(
       };
       if (store.stopped(currentJob.issue)) throw new Error("Job stopped");
       delete currentJob.error;
+      delete currentJob.errorCode;
+      delete currentJob.remediation;
       await prepare(root, currentJob.worktree, currentJob.branch);
       settleCodingTime(currentJob);
       currentJob.codingStartedAt = new Date().toISOString();
@@ -457,7 +467,7 @@ export function workflow(
         currentJob.reviewerModel = config.reviewer.model ?? config.model;
         delete currentJob.reviewerFeedback;
         store.save(currentJob);
-        store.log(currentJob.issue, "review.skipped", String(error));
+        store.log(currentJob.issue, "review.skipped", diagnoseError(error));
         return {
           job: currentJob,
           review: {
@@ -471,6 +481,26 @@ export function workflow(
     .addNode("clarify", async ({ job, result }) => {
       const currentJob = { ...job };
       if (currentJob.rounds >= 3) {
+        currentJob.errorCode = "CLARIFICATION_LIMIT";
+        currentJob.error =
+          "Louibot reached its clarification limit without a workable scope.";
+        currentJob.remediation =
+          "Update the issue with the missing requirement, then post @louibot implement to retry.";
+        await github.comment(
+          currentJob.issue,
+          [
+            "### Louibot is blocked",
+            "",
+            "It still needs a critical requirement after three clarification rounds, so it stopped instead of guessing.",
+            "",
+            `**What is still unclear:** ${githubSafeText(result.questions.join("; "))}`,
+            "",
+            `**How to resolve:** ${currentJob.remediation}`,
+            "",
+            "— Louibot",
+          ].join("\n"),
+          `louibot:clarification-limit:${currentJob.issue}:${currentJob.revision}`,
+        );
         await save(currentJob, "blocked");
         return { job: currentJob };
       }
@@ -511,9 +541,30 @@ export function workflow(
       );
       return { job: publishedJob };
     })
-    .addNode("blocked", async ({ job, result }) => ({
-      job: await save({ ...job, error: result.summary }, "blocked"),
-    }))
+    .addNode("blocked", async ({ job, result }) => {
+      const currentJob = {
+        ...job,
+        errorCode: "TASK_BLOCKED",
+        error: result.summary,
+        remediation:
+          "Clarify the issue's scope or requirements, then post @louibot implement to retry.",
+      };
+      await github.comment(
+        currentJob.issue,
+        [
+          "### Louibot is blocked",
+          "",
+          githubSafeText(result.summary),
+          "",
+          `**How to resolve:** ${currentJob.remediation}`,
+          "",
+          "— Louibot",
+        ].join("\n"),
+        `louibot:blocked:${currentJob.issue}:${currentJob.revision}`,
+      );
+      await save(currentJob, "blocked");
+      return { job: currentJob };
+    })
     .addEdge(START, "implement")
     .addConditionalEdges("implement", ({ job, result }) => {
       if (result.status === "clarify") return "clarify";
@@ -642,6 +693,8 @@ export async function claimImplementationRequests(
       rounds: 0,
       retryRequested: undefined,
       error: undefined,
+      errorCode: undefined,
+      remediation: undefined,
       outcome: undefined,
     });
     store.log(issue.number, "state", "queued");
@@ -726,20 +779,52 @@ async function recordFailure(
   github: GitHub,
   signal: AbortSignal,
 ): Promise<void> {
-  if (signal.aborted && !store.stopped(job.issue)) {
-    store.log(job.issue, "interrupted", String(error));
+  if (store.stopped(job.issue)) {
+    store.log(job.issue, "stopped", diagnoseError(error));
     return;
   }
-  store.log(job.issue, "error", String(error));
+  if (signal.aborted) {
+    store.log(job.issue, "interrupted", diagnoseError(error));
+    return;
+  }
+  const diagnostic = diagnoseError(error);
+  store.log(job.issue, "error", diagnostic);
   const currentJob = store.get(job.issue) ?? job;
   currentJob.status = store.stopped(job.issue) ? "stopped" : "failed";
-  currentJob.error = String(error);
-  store.save(currentJob);
+  currentJob.error = diagnostic.message;
+  currentJob.errorCode = diagnostic.code ?? diagnostic.name;
+  const retryCommand = currentJob.pr ? "@louibot revise" : "@louibot implement";
+  currentJob.remediation = diagnostic.nextStep.replaceAll(
+    "@louibot implement",
+    retryCommand,
+  );
   try {
     await github.setIssuePhase(job.issue, "blocked", config.github);
   } catch (labelError) {
-    store.log(job.issue, "labels.error", String(labelError));
+    store.log(job.issue, "labels.error", diagnoseError(labelError));
   }
+  const trigger = currentJob.events.at(-1);
+  const marker = `louibot:failure:${currentJob.issue}:${currentJob.attempt ?? 1}:${currentJob.revision}:${trigger ?? "worker"}`;
+  const safeMessage = githubSafeText(diagnostic.message);
+  const destination = currentJob.pr ?? currentJob.issue;
+  try {
+    await github.comment(
+      destination,
+      [
+        "### Louibot could not continue",
+        "",
+        `**${diagnostic.name}${diagnostic.code ? ` (${diagnostic.code})` : ""}:** ${safeMessage}`,
+        "",
+        `**How to resolve:** ${currentJob.remediation}`,
+        "",
+        `After addressing the cause, post a new \`${retryCommand}\` comment to retry. — Louibot`,
+      ].join("\n"),
+      marker,
+    );
+  } catch (commentError) {
+    store.log(job.issue, "failure-comment.error", diagnoseError(commentError));
+  }
+  store.save(currentJob);
 }
 
 async function processIssue(
@@ -758,7 +843,7 @@ async function processIssue(
       config.github,
     );
   } catch (error) {
-    store.log(job.issue, "labels.error", String(error));
+    store.log(job.issue, "labels.error", diagnoseError(error));
   }
   if (
     store.stopped(job.issue) ||
