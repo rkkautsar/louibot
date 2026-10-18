@@ -49,6 +49,18 @@ export const schema = z
       inputUsdPerMillion: z.number().nonnegative(),
       outputUsdPerMillion: z.number().nonnegative(),
     }),
+    reviewer: z
+      .object({
+        enabled: z.boolean().default(false),
+        model: z
+          .string()
+          .regex(/^(openai|anthropic|openai-compatible)\/.+/)
+          .optional(),
+        maxSteps: z.number().int().positive().default(12),
+        inputUsdPerMillion: z.number().nonnegative().optional(),
+        outputUsdPerMillion: z.number().nonnegative().optional(),
+      })
+      .default({ enabled: false, maxSteps: 12 }),
     sandbox: z
       .object({
         image: z.string().default("auto"),
@@ -80,6 +92,38 @@ export const schema = z
         path: ["endpoint"],
         message: "Custom endpoints require the openai-compatible provider",
       });
+    const reviewerModel = config.reviewer.model ?? config.model;
+    const reviewerHasInputPrice =
+      config.reviewer.inputUsdPerMillion !== undefined;
+    const reviewerHasOutputPrice =
+      config.reviewer.outputUsdPerMillion !== undefined;
+    if (reviewerHasInputPrice !== reviewerHasOutputPrice)
+      context.addIssue({
+        code: "custom",
+        path: ["reviewer"],
+        message: "Reviewer input and output prices must be set together",
+      });
+    if (
+      config.reviewer.enabled &&
+      reviewerModel.split("/")[0] !== config.model.split("/")[0]
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["reviewer", "model"],
+        message:
+          "The reviewer must use the implementation model's provider and endpoint",
+      });
+    if (
+      config.reviewer.enabled &&
+      reviewerModel !== config.model &&
+      (!reviewerHasInputPrice || !reviewerHasOutputPrice)
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["reviewer"],
+        message:
+          "Set reviewer inputUsdPerMillion and outputUsdPerMillion when using a different reviewer model",
+      });
   });
 export type Config = z.infer<typeof schema>;
 export function savedConfig(projectRoot: string): Record<string, unknown> {
@@ -104,6 +148,7 @@ export function config(
     "endpoint",
     "github",
     "agent",
+    "reviewer",
     "sandbox",
     "validation",
   ]) {

@@ -242,8 +242,9 @@ export class Sandbox {
     private readonly log: (message: string) => void = () => {},
     private readonly network: SandboxNetwork = "bridge",
     cacheKey = worktree,
+    private readonly readOnly = false,
   ) {
-    this.id = `louibot-${createHash("sha256").update(resolve(worktree)).digest("hex").slice(0, 20)}`;
+    this.id = `louibot-${createHash("sha256").update(resolve(worktree)).digest("hex").slice(0, 20)}${readOnly ? "-review" : ""}`;
     this.cacheVolume = cacheVolumeName(cacheKey);
   }
 
@@ -274,35 +275,38 @@ export class Sandbox {
       const uid = hostUid === 0 ? 65534 : hostUid;
       const gid = hostUid === 0 ? 65534 : hostGid;
       await this.docker(["rm", "-f", this.id]).catch(() => {});
-      // Docker creates named volumes as root-owned directories. Prepare the
-      // cache once so the sandbox can use it as its unprivileged user.
-      await this.docker([
-        "run",
-        "--rm",
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--network",
-        "none",
-        "--memory",
-        "64m",
-        "--cpus",
-        "0.25",
-        "--pids-limit",
-        "64",
-        "--mount",
-        `type=volume,source=${this.cacheVolume},destination=/cache`,
-        "--user",
-        "0:0",
-        "--entrypoint",
-        "sh",
-        this.image,
-        "-lc",
-        "chmod 0777 /cache",
-      ]);
-      await this.docker([
+      if (!this.readOnly) {
+        // Docker creates named volumes as root-owned directories. Prepare the
+        // cache once so the implementation sandbox can use it unprivileged.
+        await this.docker([
+          "run",
+          "--rm",
+          "--read-only",
+          "--cap-drop",
+          "ALL",
+          "--security-opt",
+          "no-new-privileges",
+          "--network",
+          "none",
+          "--memory",
+          "64m",
+          "--cpus",
+          "0.25",
+          "--pids-limit",
+          "64",
+          "--mount",
+          `type=volume,source=${this.cacheVolume},destination=/cache`,
+          "--user",
+          "0:0",
+          "--entrypoint",
+          "sh",
+          this.image,
+          "-lc",
+          "chmod 0777 /cache",
+        ]);
+      }
+      const workspaceMount = `type=bind,src=${this.stage},dst=/workspace${this.readOnly ? ",readonly" : ""}`;
+      const args = [
         "run",
         "-d",
         "--name",
@@ -310,7 +314,7 @@ export class Sandbox {
         "--workdir",
         "/workspace",
         "--mount",
-        `type=bind,src=${this.stage},dst=/workspace`,
+        workspaceMount,
         "--read-only",
         "--cap-drop",
         "ALL",
@@ -323,29 +327,43 @@ export class Sandbox {
         "--pids-limit",
         "256",
         "--network",
-        this.network,
-        "--mount",
-        `type=volume,source=${this.cacheVolume},destination=/cache`,
+        this.readOnly ? "none" : this.network,
+      ];
+      if (!this.readOnly) {
+        args.push(
+          "--mount",
+          `type=volume,source=${this.cacheVolume},destination=/cache`,
+        );
+      }
+      args.push(
         "--user",
         `${uid}:${gid}`,
         "--env",
         "HOME=/tmp",
         "--env",
-        "XDG_CACHE_HOME=/cache/xdg",
-        "--env",
-        "NPM_CONFIG_CACHE=/cache/npm",
-        "--env",
-        "PIP_CACHE_DIR=/cache/pip",
-        "--env",
-        "CARGO_HOME=/cache/cargo",
-        "--env",
-        "GOMODCACHE=/cache/go-mod",
-        "--env",
-        "GOCACHE=/cache/go-build",
-        "--env",
-        "GRADLE_USER_HOME=/cache/gradle",
-        "--env",
-        "MAVEN_CONFIG=/cache/maven",
+        this.readOnly
+          ? "XDG_CACHE_HOME=/tmp/cache"
+          : "XDG_CACHE_HOME=/cache/xdg",
+      );
+      if (!this.readOnly) {
+        args.push(
+          "--env",
+          "NPM_CONFIG_CACHE=/cache/npm",
+          "--env",
+          "PIP_CACHE_DIR=/cache/pip",
+          "--env",
+          "CARGO_HOME=/cache/cargo",
+          "--env",
+          "GOMODCACHE=/cache/go-mod",
+          "--env",
+          "GOCACHE=/cache/go-build",
+          "--env",
+          "GRADLE_USER_HOME=/cache/gradle",
+          "--env",
+          "MAVEN_CONFIG=/cache/maven",
+        );
+      }
+      args.push(
         "--tmpfs",
         "/tmp:rw,nosuid,nodev,size=64m",
         "--entrypoint",
@@ -353,7 +371,8 @@ export class Sandbox {
         this.image,
         "-c",
         "while :; do sleep 3600; done",
-      ]);
+      );
+      await this.docker([...args]);
       this.started = true;
     } catch (error) {
       throw error;
@@ -446,7 +465,7 @@ export class Sandbox {
       await this.docker(["stop", this.id]).catch(() => {});
       this.started = false;
     }
-    await syncWorkspaceFromStage(this.stage, this.worktree);
+    if (!this.readOnly) await syncWorkspaceFromStage(this.stage, this.worktree);
     this.finished = true;
   }
 
@@ -460,7 +479,7 @@ export class Sandbox {
       this.log(`Could not remove sandbox container: ${String(error)}`);
     } finally {
       if (this.stage) {
-        if (!this.finished) {
+        if (!this.finished && !this.readOnly) {
           try {
             await syncWorkspaceFromStage(this.stage, this.worktree);
           } catch (error) {

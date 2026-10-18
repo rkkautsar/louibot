@@ -2,7 +2,7 @@
 
 Locally Orchestrated Issue Implementer Bot. Assign an issue. Get a draft PR. See [louibot.rakha.dev](https://louibot.rakha.dev) for the short tour.
 
-Louibot runs the coding agent locally, uses a disposable Docker sandbox for shell access, and uses the GitHub CLI for collaboration. It creates draft pull requests and never merges them.
+Louibot runs the coding agent locally, uses a disposable Docker sandbox for shell access, and uses the GitHub CLI for collaboration. An optional fresh-context reviewer can inspect proposed changes in a read-only, offline sandbox before Louibot opens a draft PR. Louibot never merges PRs.
 
 ## Install
 
@@ -59,7 +59,7 @@ louibot start \
 
 Use prices that match your Cloudflare account's billing. Other compatible endpoints may need different settings; check their Chat Completions documentation rather than assuming Cloudflare's parameters apply.
 
-All settings can be passed to `louibot start` or `louibot doctor`. For repeated use, save defaults in `.louibot/config.yaml` and override any of them per invocation. CLI flags take precedence; no setup command is required. `louibot start --help` lists the flags. The YAML fields map to `--repository`, `--model`, `--base-url`, `--api-key-env`, `--token-limit-parameter`, `--reasoning-effort`, `--issue-label`, `--blocked-label`, `--done-label`, `--poll-interval-seconds`, `--max-concurrent-jobs`, `--max-steps`, `--max-cost-usd`, `--context-window-tokens`, `--max-input-tokens`, `--max-output-tokens`, `--input-price`, `--output-price`, `--sandbox-image`, `--command-timeout-seconds`, `--sandbox-network`, and repeatable `--validation-command`. Use `--clear-validation-commands` to return to automatic validation discovery and `--clear-endpoint` to remove a saved compatible API endpoint. The token defaults reserve headroom inside a 200K context window; raise them only when the selected model and endpoint document larger limits.
+All settings can be passed to `louibot start` or `louibot doctor`. For repeated use, save defaults in `.louibot/config.yaml` and override any of them per invocation. CLI flags take precedence; no setup command is required. `louibot start --help` lists the flags. Reviewer options are `--review` / `--no-review`, `--reviewer-model`, `--reviewer-max-steps`, `--reviewer-input-price`, and `--reviewer-output-price`. A different reviewer model must use the same provider and endpoint as the implementation model; its price rates are required unless Louibot has published direct-model pricing. The reviewer is disabled by default. The remaining YAML fields map to `--repository`, `--model`, `--base-url`, `--api-key-env`, `--token-limit-parameter`, `--reasoning-effort`, `--issue-label`, `--blocked-label`, `--done-label`, `--poll-interval-seconds`, `--max-concurrent-jobs`, `--max-steps`, `--max-cost-usd`, `--context-window-tokens`, `--max-input-tokens`, `--max-output-tokens`, `--input-price`, `--output-price`, `--sandbox-image`, `--command-timeout-seconds`, `--sandbox-network`, and repeatable `--validation-command`. Use `--clear-validation-commands` to return to automatic validation discovery and `--clear-endpoint` to remove a saved compatible API endpoint. The token defaults reserve headroom inside a 200K context window; raise them only when the selected model and endpoint document larger limits.
 
 `louibot doctor` checks GitHub access, Docker, the model key, the discovered sandbox image, and repository validation commands. `--sandbox-image auto` uses a directly referenced image from `.devcontainer/devcontainer.json` when available, then selects a common language image from repository files, and finally falls back to `node:22`. Set an explicit image when the repository needs a custom toolchain; Louibot does not build arbitrary Dockerfiles automatically. Automatic validation discovery is used unless one or more `--validation-command` flags override it.
 
@@ -79,7 +79,11 @@ Louibot uses `louibot:active` while an issue is active, `louibot:blocked` while 
 
 If the repository has a standard pull request template in `.github/`, the repository root, or `docs/`, Louibot preserves it at the top of the draft PR description. It appends a clearly marked implementation summary, collapsible validation output, and the issue reference below the template so existing checklists and prompts remain intact.
 
-Draft PRs and revision comments include a Louibot run summary with the model, accumulated active agent time, and estimated reserved spend. The spend is intentionally labeled as an estimate because provider billing, caching, and gateway pricing may differ.
+Draft PRs and revision comments include a Louibot run summary with the implementation model, optional reviewer result, accumulated active agent time, and estimated reserved spend. The spend is intentionally labeled as an estimate because provider billing, caching, and gateway pricing may differ.
+
+### Optional independent review
+
+Enable it with `louibot start --review` or `reviewer.enabled: true` in `.louibot/config.yaml`. The reviewer gets a separate conversation, a changed-file list and bounded diff excerpt, and can inspect surrounding repository code and tests. Its Docker workspace is mounted read-only, has no network or shared build cache, and receives no credentials. It reports only concrete findings; valid findings are sent back to the implementer once before publication. Review errors or budget exhaustion are recorded as skipped so an optional reviewer cannot strand a successful implementation. Review calls count against the same per-issue spend limit.
 
 ### Requesting revisions
 
@@ -97,7 +101,7 @@ The host controller keeps GitHub and model credentials out of the Docker sandbox
 
 The sandbox has internet access when `sandbox.network` is `bridge`, so projects can install dependencies and fetch documentation. That also means an agent can send repository data to external services. Use `none` for offline jobs when practical. Docker is a containment boundary for this local tool, not a complete data-loss prevention system. Review the repository and network policy before using Louibot with sensitive code.
 
-The default runs one coding job at a time. Set `agent.maxConcurrentJobs` above one only when the host has enough Docker CPU and memory for multiple sandboxes; each job reserves its own model budget. GitHub and Docker failures are persisted for inspection and retry, but crash recovery around external publication side effects remains intentionally conservative. The bot does not merge PRs, create issues, or perform independent code review.
+The default runs one coding job at a time. Set `agent.maxConcurrentJobs` above one only when the host has enough Docker CPU and memory for multiple sandboxes; each job reserves its own model budget. GitHub and Docker failures are persisted for inspection and retry, but crash recovery around external publication side effects remains intentionally conservative. The bot does not merge PRs or create issues.
 
 Louibot is released under the [MIT License](LICENSE).
 

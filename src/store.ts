@@ -11,6 +11,11 @@ export interface Job {
   attempt?: number;
   pr?: number;
   model?: string;
+  reviewerModel?: string;
+  reviewedRevision?: number;
+  reviewStatus?: "pass" | "findings" | "skipped";
+  reviewSummary?: string;
+  reviewerFeedback?: string;
   cost: number;
   codingSeconds?: number;
   codingStartedAt?: string;
@@ -26,6 +31,7 @@ export interface Job {
 export type JobStatus =
   | "queued"
   | "coding"
+  | "reviewing"
   | "clarification"
   | "blocked"
   | "publishing"

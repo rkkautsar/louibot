@@ -77,3 +77,42 @@ test("sandbox network mode can disable internet access", () => {
     }),
   );
 });
+
+test("reviewer is opt-in and can use a separately priced model on the same provider", () => {
+  assert.deepEqual(schema.parse(base).reviewer, {
+    enabled: false,
+    maxSteps: 12,
+  });
+  const parsed = schema.parse({
+    ...base,
+    reviewer: {
+      enabled: true,
+      model: "anthropic/claude-reviewer",
+      maxSteps: 8,
+      inputUsdPerMillion: 3,
+      outputUsdPerMillion: 9,
+    },
+  });
+  assert.equal(parsed.reviewer.model, "anthropic/claude-reviewer");
+  assert.equal(parsed.reviewer.maxSteps, 8);
+  assert.throws(() =>
+    schema.parse({
+      ...base,
+      reviewer: {
+        enabled: true,
+        model: "openai/gpt-6-luna",
+        inputUsdPerMillion: 3,
+        outputUsdPerMillion: 9,
+      },
+    }),
+  );
+  assert.throws(() =>
+    schema.parse({
+      ...base,
+      reviewer: {
+        enabled: true,
+        model: "anthropic/claude-reviewer",
+      },
+    }),
+  );
+});

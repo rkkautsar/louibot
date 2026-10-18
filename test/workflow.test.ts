@@ -130,12 +130,19 @@ test("publication text includes run metadata when available", () => {
     undefined,
     {
       model: "openai-compatible/openai/gpt-6-luna",
+      reviewerModel: "openai-compatible/openai/gpt-6-astra",
+      reviewStatus: "findings",
+      reviewSummary: "One concrete edge case was returned to the implementer.",
       codingSeconds: 85,
       estimatedCostUsd: 0.25,
     },
   );
   assert.match(body, /## Louibot run/);
   assert.match(body, /Model: `openai-compatible\/openai\/gpt-6-luna`/);
+  assert.match(
+    body,
+    /Independent review: `openai-compatible\/openai\/gpt-6-astra` \(findings returned to implementer; follow-up not independently re-reviewed\)/,
+  );
   assert.match(body, /Agent time: 1m 25s/);
   assert.match(body, /Estimated spend: \$0\.25/);
 });
@@ -200,7 +207,10 @@ test("a new implement command after a closed PR starts a fresh attempt", async (
   const github = {
     implementationRequests: async () => [{ issue, commentId: 2 }],
   };
-  const config = { model: "openai/gpt-6-luna" };
+  const config = {
+    model: "openai/gpt-6-luna",
+    reviewer: { enabled: false },
+  };
   try {
     await claimImplementationRequests(store, github as never, config as never);
     store.save({

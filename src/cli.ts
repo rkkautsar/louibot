@@ -30,6 +30,11 @@ interface StartOptions {
   reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
   inputPrice?: string;
   outputPrice?: string;
+  review?: boolean;
+  reviewerModel?: string;
+  reviewerMaxSteps?: string;
+  reviewerInputPrice?: string;
+  reviewerOutputPrice?: string;
   issueLabel?: string;
   blockedLabel?: string;
   doneLabel?: string;
@@ -65,6 +70,18 @@ function addStartOptions(command: Command) {
     .option("--clear-endpoint", "Remove a saved OpenAI-compatible endpoint")
     .option("--input-price <usd>", "USD per million input tokens")
     .option("--output-price <usd>", "USD per million output tokens")
+    .option("--review", "Enable the independent read-only review pass")
+    .option("--no-review", "Disable the independent review pass")
+    .option("--reviewer-model <provider/model>", "Model ID for the reviewer")
+    .option("--reviewer-max-steps <count>", "Maximum reviewer steps")
+    .option(
+      "--reviewer-input-price <usd>",
+      "Reviewer USD per million input tokens",
+    )
+    .option(
+      "--reviewer-output-price <usd>",
+      "Reviewer USD per million output tokens",
+    )
     .option("--issue-label <label>", "Issue label that opts in to Louibot")
     .option("--blocked-label <label>", "Status label for blocked jobs")
     .option("--done-label <label>", "Status label for completed jobs")
@@ -108,6 +125,10 @@ function defined(values: Record<string, unknown>) {
 async function resolveConfig(options: StartOptions) {
   if (!!options.inputPrice !== !!options.outputPrice)
     throw new Error("Provide both --input-price and --output-price together");
+  if (!!options.reviewerInputPrice !== !!options.reviewerOutputPrice)
+    throw new Error(
+      "Provide both --reviewer-input-price and --reviewer-output-price together",
+    );
   if (options.clearValidationCommands && options.validationCommand?.length)
     throw new Error(
       "Use either --clear-validation-commands or --validation-command",
@@ -135,6 +156,7 @@ async function resolveConfig(options: StartOptions) {
     );
 
   const savedAgent = (saved.agent ?? {}) as Record<string, unknown>;
+  const savedReviewer = (saved.reviewer ?? {}) as Record<string, unknown>;
   const model = options.model ?? (saved.model as string | undefined);
   if (!model)
     throw new Error(
@@ -183,6 +205,28 @@ async function resolveConfig(options: StartOptions) {
     tokenLimitParameter: options.tokenLimitParameter,
     reasoningEffort: options.reasoningEffort,
   });
+  const reviewerModel =
+    options.reviewerModel ??
+    (savedReviewer.model as string | undefined) ??
+    model;
+  const reviewerPricing =
+    options.reviewerInputPrice && options.reviewerOutputPrice
+      ? {
+          inputUsdPerMillion: Number(options.reviewerInputPrice),
+          outputUsdPerMillion: Number(options.reviewerOutputPrice),
+        }
+      : reviewerModel === model
+        ? undefined
+        : knownPricing(reviewerModel);
+  if (
+    reviewerModel !== model &&
+    !reviewerPricing &&
+    (savedReviewer.inputUsdPerMillion === undefined ||
+      (options.reviewerModel && savedReviewer.model !== options.reviewerModel))
+  )
+    throw new Error(
+      `No built-in pricing is available for reviewer ${reviewerModel}; pass --reviewer-input-price and --reviewer-output-price`,
+    );
   const overrides = {
     repository,
     model,
@@ -198,6 +242,18 @@ async function resolveConfig(options: StartOptions) {
       pollIntervalSeconds: numeric(options.pollIntervalSeconds),
     }),
     agent: defined(agentOverrides),
+    reviewer: defined({
+      enabled: options.review,
+      model: options.reviewerModel,
+      maxSteps: numeric(options.reviewerMaxSteps),
+      ...(reviewerPricing ?? {}),
+      ...(options.reviewerInputPrice && options.reviewerOutputPrice
+        ? {
+            inputUsdPerMillion: Number(options.reviewerInputPrice),
+            outputUsdPerMillion: Number(options.reviewerOutputPrice),
+          }
+        : {}),
+    }),
     sandbox: defined({
       image: options.sandboxImage,
       commandTimeoutSeconds: numeric(options.commandTimeoutSeconds),
@@ -228,6 +284,7 @@ cli.command("status").action(() => {
       state: store.stopped(job.issue) ? "stopped" : job.status,
       revision: job.revision,
       model: job.model ?? "unknown",
+      reviewer: job.reviewerModel ? (job.reviewStatus ?? "pending") : "off",
       agentTime: formatDuration(job.codingSeconds),
       estimatedCostUsd: job.cost,
       last: job.last,

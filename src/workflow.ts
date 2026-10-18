@@ -13,10 +13,19 @@ import type { Config } from "./config.js";
 import { Store, type Job, type JobStatus } from "./store.js";
 import { GitHub } from "./github.js";
 import { prepare, git, cleanup } from "./workspace.js";
-import { code, type Result } from "./agent.js";
+import {
+  code,
+  reviewImplementation,
+  type Result,
+  type ReviewResult,
+} from "./agent.js";
 const State = Annotation.Root({
   job: Annotation<Job>(),
   result: Annotation<Result>(),
+  review: Annotation<ReviewResult | undefined>({
+    value: (_current, next) => next,
+    default: () => undefined,
+  }),
 });
 export function issuePhase(
   job: Job,
@@ -48,6 +57,9 @@ export function validationDetails(tests: string): string {
 
 export interface RunMetadata {
   model?: string;
+  reviewerModel?: string;
+  reviewStatus?: Job["reviewStatus"];
+  reviewSummary?: string;
   codingSeconds?: number;
   estimatedCostUsd?: number;
 }
@@ -70,6 +82,9 @@ function runDetails(metadata?: RunMetadata): string {
     "## Louibot run",
     "",
     `- Model: \`${metadata.model ?? "unknown"}\``,
+    metadata.reviewerModel
+      ? `- Independent review: \`${metadata.reviewerModel}\` (${metadata.reviewStatus === "findings" ? "findings returned to implementer; follow-up not independently re-reviewed" : (metadata.reviewStatus ?? "pending")})${metadata.reviewSummary ? ` — ${metadata.reviewSummary}` : ""}`
+      : undefined,
     `- Agent time: ${formatDuration(metadata.codingSeconds)}`,
     `- Estimated spend: ${cost}`,
     "",
@@ -288,6 +303,9 @@ async function publishChanges(
         readPullRequestTemplate(publishingJob.worktree),
         {
           model: publishingJob.model,
+          reviewerModel: publishingJob.reviewerModel,
+          reviewStatus: publishingJob.reviewStatus,
+          reviewSummary: publishingJob.reviewSummary,
           codingSeconds: publishingJob.codingSeconds,
           estimatedCostUsd: publishingJob.cost,
         },
@@ -299,6 +317,9 @@ async function publishChanges(
       pullRequest.number,
       revisionComment(result.summary, result.tests, {
         model: publishingJob.model,
+        reviewerModel: publishingJob.reviewerModel,
+        reviewStatus: publishingJob.reviewStatus,
+        reviewSummary: publishingJob.reviewSummary,
         codingSeconds: publishingJob.codingSeconds,
         estimatedCostUsd: publishingJob.cost,
       }),
@@ -353,6 +374,86 @@ export function workflow(
       }
       return { job: currentJob, result };
     })
+    .addNode("review", async ({ job, result }) => {
+      const currentJob = { ...job };
+      if (store.stopped(currentJob.issue) || signal.aborted)
+        throw new Error("Job stopped");
+      await save(currentJob, "reviewing");
+      if (!config.reviewer.enabled) {
+        currentJob.reviewedRevision = currentJob.revision;
+        currentJob.reviewStatus = "skipped";
+        currentJob.reviewSummary = "Review disabled before this revision ran.";
+        store.save(currentJob);
+        return {
+          job: currentJob,
+          review: {
+            status: "pass",
+            summary: currentJob.reviewSummary,
+            findings: [],
+          } satisfies ReviewResult,
+        };
+      }
+      try {
+        await git(currentJob.worktree, ["add", "--all"]);
+        const changedFiles = await git(currentJob.worktree, [
+          "diff",
+          "--cached",
+          "--name-only",
+        ]);
+        const fullDiff = await git(currentJob.worktree, [
+          "diff",
+          "--cached",
+          "--no-ext-diff",
+          "--unified=4",
+        ]);
+        const diffLimit = 48_000;
+        const diff =
+          fullDiff.length <= diffLimit
+            ? fullDiff
+            : `${fullDiff.slice(0, diffLimit)}\n\n[Diff excerpt truncated; inspect the changed files in the read-only workspace.]`;
+        const review = await reviewImplementation(
+          config,
+          currentJob,
+          store,
+          signal,
+          {
+            changedFiles: changedFiles || "No staged files",
+            diff: diff || "No staged diff",
+            implementation: result,
+          },
+        );
+        currentJob.reviewedRevision = currentJob.revision;
+        currentJob.reviewStatus = review.status;
+        currentJob.reviewSummary = review.summary
+          .replace(/[\r\n`]/g, " ")
+          .slice(0, 400);
+        currentJob.reviewerModel = config.reviewer.model ?? config.model;
+        currentJob.reviewerFeedback =
+          review.status === "findings"
+            ? JSON.stringify(review.findings, null, 2)
+            : undefined;
+        store.save(currentJob);
+        store.log(currentJob.issue, "review.result", review);
+        return { job: currentJob, review };
+      } catch (error) {
+        if (signal.aborted || store.stopped(currentJob.issue)) throw error;
+        currentJob.reviewedRevision = currentJob.revision;
+        currentJob.reviewStatus = "skipped";
+        currentJob.reviewSummary = "Review could not complete; see local logs.";
+        currentJob.reviewerModel = config.reviewer.model ?? config.model;
+        delete currentJob.reviewerFeedback;
+        store.save(currentJob);
+        store.log(currentJob.issue, "review.skipped", String(error));
+        return {
+          job: currentJob,
+          review: {
+            status: "pass",
+            summary: currentJob.reviewSummary,
+            findings: [],
+          } satisfies ReviewResult,
+        };
+      }
+    })
     .addNode("clarify", async ({ job, result }) => {
       const currentJob = { ...job };
       if (currentJob.rounds >= 3) {
@@ -381,6 +482,7 @@ export function workflow(
         events: feedback.events,
         revision: job.revision + 1,
         rounds: job.rounds + (job.status === "clarification" ? 1 : 0),
+        reviewerFeedback: undefined,
       };
       await save(resumedJob, "queued");
       return { job: resumedJob };
@@ -393,12 +495,15 @@ export function workflow(
       job: await save({ ...job, error: result.summary }, "blocked"),
     }))
     .addEdge(START, "implement")
-    .addConditionalEdges("implement", ({ result }) =>
-      result.status === "done"
-        ? "publish"
-        : result.status === "clarify"
-          ? "clarify"
-          : "blocked",
+    .addConditionalEdges("implement", ({ job, result }) => {
+      if (result.status === "clarify") return "clarify";
+      if (result.status !== "done") return "blocked";
+      return config.reviewer.enabled && job.reviewedRevision !== job.revision
+        ? "review"
+        : "publish";
+    })
+    .addConditionalEdges("review", ({ review }) =>
+      review?.status === "findings" ? "implement" : "publish",
     )
     .addConditionalEdges("clarify", ({ job }) =>
       job.status === "blocked" ? END : "wait",
@@ -464,6 +569,9 @@ export async function claimImplementationRequests(
         revision: 0,
         attempt: 1,
         model: config.model,
+        reviewerModel: config.reviewer.enabled
+          ? (config.reviewer.model ?? config.model)
+          : undefined,
         cost: 0,
         codingSeconds: 0,
         last: new Date().toISOString(),
@@ -486,6 +594,13 @@ export async function claimImplementationRequests(
       attempt,
       pr: undefined,
       model: config.model,
+      reviewerModel: config.reviewer.enabled
+        ? (config.reviewer.model ?? config.model)
+        : undefined,
+      reviewedRevision: undefined,
+      reviewStatus: undefined,
+      reviewSummary: undefined,
+      reviewerFeedback: undefined,
       cost: 0,
       codingSeconds: 0,
       codingStartedAt: undefined,

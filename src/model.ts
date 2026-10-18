@@ -2,12 +2,16 @@ import { ChatOpenAI, ChatOpenAICompletions } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
 import type { Config } from "./config.js";
 
-export function createModel(config: Config) {
-  const [provider, ...modelIdParts] = config.model.split("/");
+export function createModel(
+  config: Config,
+  model = config.model,
+  maxTokens = config.agent.maxOutputTokens,
+) {
+  const [provider, ...modelIdParts] = model.split("/");
   const modelId = modelIdParts.join("/");
   const modelOptions = {
     model: modelId,
-    maxTokens: config.agent.maxOutputTokens,
+    maxTokens,
     maxRetries: 0,
   };
   if (provider === "openai-compatible") {
