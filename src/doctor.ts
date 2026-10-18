@@ -13,6 +13,9 @@ import {
 import { git } from "./workspace.js";
 
 const execFileAsync = promisify(execFile);
+// Keep the connectivity probe small, but leave enough room for providers that
+// count reasoning tokens against the requested completion budget.
+const MODEL_PROBE_MAX_TOKENS = 256;
 
 type Check = {
   label: string;
@@ -54,15 +57,16 @@ export function modelCredentialSource(repositoryConfig: Config): string {
 export async function probeModelAccess(
   repositoryConfig: Config,
   invoke: () => Promise<unknown> = () =>
-    createModel(repositoryConfig, repositoryConfig.model, 1).invoke(
-      "Reply with OK.",
-      { signal: AbortSignal.timeout(20_000) },
-    ),
+    createModel(
+      repositoryConfig,
+      repositoryConfig.model,
+      MODEL_PROBE_MAX_TOKENS,
+    ).invoke("Reply with OK.", { signal: AbortSignal.timeout(20_000) }),
 ): Promise<string> {
   const envName = modelKeyEnv(repositoryConfig);
   if (!process.env[envName]) throw new Error(`${envName} is not set`);
   try {
-    // A one-token request exercises the same host-side credential and route as the agent.
+    // The probe uses the same host-side credential and route as the agent.
     await invoke();
   } catch (error) {
     throw new Error(

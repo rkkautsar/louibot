@@ -68,6 +68,42 @@ test("doctor probes using the configured credential and reports only its name", 
   }
 });
 
+test("doctor gives the connectivity probe enough output budget for Luna", async () => {
+  const name = "LOUIBOT_DOCTOR_TOKEN";
+  const previousValue = process.env[name];
+  const originalFetch = globalThis.fetch;
+  process.env[name] = "doctor-test-value";
+  let requestedTokens: number | undefined;
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body));
+    requestedTokens = body.max_completion_tokens;
+    return new Response(
+      JSON.stringify({
+        id: "doctor-probe",
+        object: "chat.completion",
+        created: 1,
+        model: "openai/gpt-6-luna",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "OK" },
+            finish_reason: "stop",
+          },
+        ],
+      }),
+      { headers: { "content-type": "application/json" } },
+    );
+  };
+  try {
+    await probeModelAccess(compatibleConfig);
+    assert.equal(requestedTokens, 256);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousValue === undefined) delete process.env[name];
+    else process.env[name] = previousValue;
+  }
+});
+
 test("doctor does not make an API request when the selected key is missing", async () => {
   const name = "LOUIBOT_DOCTOR_MISSING_TOKEN";
   const previousValue = process.env[name];
