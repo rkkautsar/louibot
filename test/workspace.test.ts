@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import {
   mkdtemp,
   mkdir,
+  chmod,
   readFile,
   readlink,
   rm,
@@ -12,13 +13,14 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterEach, test } from "node:test";
 import {
   cacheVolumeName,
   buildShellCaptureCommand,
   copyWorkspaceToStage,
   prepareSandboxStage,
+  Sandbox,
   MAX_SHELL_OUTPUT,
   syncWorkspaceFromStage,
   truncateShellOutput,
@@ -32,6 +34,40 @@ test("cache volumes are stable and safe for repository identifiers", () => {
   assert.equal(first, cacheVolumeName("owner/repo"));
   assert.notEqual(first, cacheVolumeName("other/repo"));
   assert.match(first, /^louibot-build-cache-[a-f0-9]{24}$/);
+});
+
+test("sandbox leaves /tmp uncapped and shares Playwright browsers in /cache", async () => {
+  const { root, worktree } = await fixture();
+  const bin = join(root, "bin");
+  const dockerLog = join(root, "docker-args.log");
+  await mkdir(bin);
+  const fakeDocker = join(bin, "docker");
+  await writeFile(
+    fakeDocker,
+    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$LOUIBOT_TEST_DOCKER_LOG"\n',
+  );
+  await chmod(fakeDocker, 0o755);
+
+  const originalPath = process.env.PATH;
+  const originalDockerLog = process.env.LOUIBOT_TEST_DOCKER_LOG;
+  try {
+    process.env.PATH = `${bin}${delimiter}${originalPath ?? ""}`;
+    process.env.LOUIBOT_TEST_DOCKER_LOG = dockerLog;
+    const sandbox = new Sandbox("node:22", worktree, 120);
+    await sandbox.start();
+    await sandbox.dispose();
+
+    const dockerArgs = await readFile(dockerLog, "utf8");
+    assert.match(dockerArgs, /--tmpfs \/tmp:rw,nosuid,nodev/);
+    assert.doesNotMatch(dockerArgs, /size=64m/);
+    assert.match(dockerArgs, /PLAYWRIGHT_BROWSERS_PATH=\/cache\/playwright/);
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    if (originalDockerLog === undefined)
+      delete process.env.LOUIBOT_TEST_DOCKER_LOG;
+    else process.env.LOUIBOT_TEST_DOCKER_LOG = originalDockerLog;
+  }
 });
 
 test("shell output keeps both the beginning and end when truncated", () => {

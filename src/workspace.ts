@@ -384,6 +384,8 @@ export class Sandbox {
           "--env",
           "NPM_CONFIG_CACHE=/cache/npm",
           "--env",
+          "PLAYWRIGHT_BROWSERS_PATH=/cache/playwright",
+          "--env",
           "PIP_CACHE_DIR=/cache/pip",
           "--env",
           "CARGO_HOME=/cache/cargo",
@@ -399,7 +401,7 @@ export class Sandbox {
       }
       args.push(
         "--tmpfs",
-        "/tmp:rw,nosuid,nodev,size=64m",
+        "/tmp:rw,nosuid,nodev",
         "--entrypoint",
         "sh",
         this.image,
