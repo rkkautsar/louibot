@@ -396,6 +396,19 @@ export function workflow(
       let result: Result;
       try {
         result = await code(config, currentJob, store, signal);
+        if (config.reviewer.pairedWorkflow.enabled) {
+          currentJob.reviewerModel = config.reviewer.model ?? config.model;
+          if (result.status === "done") {
+            currentJob.reviewedRevision = currentJob.revision;
+            currentJob.reviewStatus = "pass";
+            currentJob.reviewSummary =
+              "Paired investigation and patch reviews approved.";
+          } else if (result.status === "inconclusive") {
+            currentJob.reviewStatus = "findings";
+            currentJob.reviewSummary =
+              "Paired workflow could not verify the candidate.";
+          }
+        }
       } finally {
         settleCodingTime(currentJob);
         store.save(currentJob);
@@ -548,15 +561,22 @@ export function workflow(
     .addNode("blocked", async ({ job, result }) => {
       const currentJob = {
         ...job,
-        errorCode: "TASK_BLOCKED",
+        errorCode:
+          result.status === "inconclusive"
+            ? "TASK_INCONCLUSIVE"
+            : "TASK_BLOCKED",
         error: result.summary,
         remediation:
-          "Clarify the issue's scope or requirements, then post @louibot implement to retry.",
+          result.status === "inconclusive"
+            ? "Review the unresolved evidence, then post @louibot implement to retry."
+            : "Clarify the issue's scope or requirements, then post @louibot implement to retry.",
       };
       await github.comment(
         currentJob.issue,
         [
-          "### Louibot is blocked",
+          result.status === "inconclusive"
+            ? "### Louibot could not verify the task"
+            : "### Louibot is blocked",
           "",
           githubSafeText(result.summary),
           "",
@@ -571,9 +591,11 @@ export function workflow(
     })
     .addEdge(START, "implement")
     .addConditionalEdges("implement", ({ job, result }) => {
-      if (result.status === "clarify") return "clarify";
+      if ((result.status as string) === "clarify") return "clarify";
       if (result.status !== "done") return "blocked";
-      return config.reviewer.enabled && job.reviewedRevision !== job.revision
+      return config.reviewer.enabled &&
+        !config.reviewer.pairedWorkflow.enabled &&
+        job.reviewedRevision !== job.revision
         ? "independentReview"
         : "publish";
     })

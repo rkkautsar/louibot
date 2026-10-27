@@ -18,7 +18,9 @@ import { afterEach, test } from "node:test";
 import {
   cacheVolumeName,
   buildShellCaptureCommand,
+  captureWorkspaceBaseline,
   copyWorkspaceToStage,
+  diffWorkspaceFromBaseline,
   prepareSandboxStage,
   Sandbox,
   MAX_SHELL_OUTPUT,
@@ -34,6 +36,43 @@ test("cache volumes are stable and safe for repository identifiers", () => {
   assert.equal(first, cacheVolumeName("owner/repo"));
   assert.notEqual(first, cacheVolumeName("other/repo"));
   assert.match(first, /^louibot-build-cache-[a-f0-9]{24}$/);
+});
+
+test("baseline diffs include changed and untracked files without exposing secrets", async () => {
+  const { worktree } = await fixture();
+  await execFileAsync("git", ["init", "-q"], { cwd: worktree });
+  await execFileAsync("git", ["config", "user.name", "Louibot test"], {
+    cwd: worktree,
+  });
+  await execFileAsync(
+    "git",
+    ["config", "user.email", "louibot-test@example.invalid"],
+    { cwd: worktree },
+  );
+  await writeFile(join(worktree, "app.ts"), "export const value = 1;\n");
+  await writeFile(join(worktree, ".env"), "TOKEN=baseline-secret\n");
+  await execFileAsync("git", ["add", "app.ts", ".env"], { cwd: worktree });
+  await execFileAsync("git", ["commit", "-qm", "fixture"], {
+    cwd: worktree,
+  });
+
+  const baseline = await captureWorkspaceBaseline(worktree);
+  const stage = join(worktree, "stage");
+  await mkdir(stage);
+  await writeFile(join(stage, "app.ts"), "export const value = 2;\n");
+  await writeFile(join(stage, "new.ts"), "export const added = true;\n");
+  const gitDir = (
+    await execFileAsync("git", ["rev-parse", "--absolute-git-dir"], {
+      cwd: worktree,
+    })
+  ).stdout.trim();
+  const diff = await diffWorkspaceFromBaseline(stage, baseline, gitDir);
+
+  assert.match(diff, /app\.ts/);
+  assert.match(diff, /value = 2/);
+  assert.match(diff, /new\.ts/);
+  assert.match(diff, /added = true/);
+  assert.doesNotMatch(diff, /\.env|baseline-secret|current-secret/);
 });
 
 test("sandbox leaves /tmp uncapped and shares Playwright browsers in /cache", async () => {
@@ -61,6 +100,46 @@ test("sandbox leaves /tmp uncapped and shares Playwright browsers in /cache", as
     assert.match(dockerArgs, /--tmpfs \/tmp:rw,nosuid,nodev/);
     assert.doesNotMatch(dockerArgs, /size=64m/);
     assert.match(dockerArgs, /PLAYWRIGHT_BROWSERS_PATH=\/cache\/playwright/);
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    if (originalDockerLog === undefined)
+      delete process.env.LOUIBOT_TEST_DOCKER_LOG;
+    else process.env.LOUIBOT_TEST_DOCKER_LOG = originalDockerLog;
+  }
+});
+
+test("exploration shell reuses the writable implementation container", async () => {
+  const { root, worktree } = await fixture();
+  const bin = join(root, "bin");
+  const dockerLog = join(root, "docker-args.log");
+  await mkdir(bin);
+  const fakeDocker = join(bin, "docker");
+  await writeFile(
+    fakeDocker,
+    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$LOUIBOT_TEST_DOCKER_LOG"\n',
+  );
+  await chmod(fakeDocker, 0o755);
+
+  const originalPath = process.env.PATH;
+  const originalDockerLog = process.env.LOUIBOT_TEST_DOCKER_LOG;
+  try {
+    process.env.PATH = `${bin}${delimiter}${originalPath ?? ""}`;
+    process.env.LOUIBOT_TEST_DOCKER_LOG = dockerLog;
+    const sandbox = new Sandbox("node:22", worktree, 120);
+    await sandbox.start();
+    assert.equal(await sandbox.explorationShell("find . -maxdepth 1"), "");
+    await sandbox.finish();
+    await sandbox.dispose();
+
+    const dockerArgs = await readFile(dockerLog, "utf8");
+    const launches = dockerArgs
+      .split("\n")
+      .filter((line) => line.includes("run -d"));
+    assert.equal(launches.length, 1);
+    assert.match(launches[0], /type=bind,src=.*\.sandbox,dst=\/workspace/);
+    assert.doesNotMatch(launches[0], /dst=\/workspace,readonly/);
+    assert.match(launches[0], /--tmpfs \/tmp:rw,nosuid,nodev/);
   } finally {
     if (originalPath === undefined) delete process.env.PATH;
     else process.env.PATH = originalPath;
@@ -167,6 +246,44 @@ test("sync copies staged changes and applies file and directory deletions", asyn
   );
   await assert.rejects(readFile(join(worktree, "remove.txt")));
   await assert.rejects(readFile(join(worktree, "old-dir", "old.txt")));
+});
+
+test("sync copies only changed files and skips newly generated ignored output", async () => {
+  const { stage, worktree } = await fixture();
+  await execFileAsync("git", ["init", "-q"], { cwd: worktree });
+  await writeFile(join(worktree, ".gitignore"), "node_modules/\n");
+  await writeFile(join(worktree, "keep.txt"), "unchanged");
+  await writeFile(join(worktree, "change.txt"), "before");
+  await writeFile(join(worktree, "delete.txt"), "remove me");
+  await prepareSandboxStage(worktree, stage);
+
+  const untouchedBefore = await stat(join(worktree, "keep.txt"));
+  await writeFile(join(stage, "change.txt"), "after");
+  await rm(join(stage, "delete.txt"));
+  await writeFile(join(stage, "new.txt"), "new source file");
+  await mkdir(join(stage, "node_modules", "large-package"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(stage, "node_modules", "large-package", "index.js"),
+    "generated dependency",
+  );
+
+  await syncWorkspaceFromStage(stage, worktree);
+
+  assert.equal(await readFile(join(worktree, "change.txt"), "utf8"), "after");
+  assert.equal(
+    await readFile(join(worktree, "new.txt"), "utf8"),
+    "new source file",
+  );
+  await assert.rejects(readFile(join(worktree, "delete.txt")));
+  await assert.rejects(
+    readFile(join(worktree, "node_modules", "large-package", "index.js")),
+  );
+  assert.equal(
+    (await stat(join(worktree, "keep.txt"))).ino,
+    untouchedBefore.ino,
+  );
 });
 
 test("sync preserves protected files and never follows host symlinks", async () => {

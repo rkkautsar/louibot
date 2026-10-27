@@ -1,0 +1,46 @@
+{
+  "dataset": "SWE-bench/SWE-bench_Multilingual",
+  "datasetRevision": "846e647b9f33c0b51b739d005d13d85493c9af09",
+  "split": "test",
+  "repository": "facebook/docusaurus",
+  "language": "JavaScript/TypeScript",
+  "selection": "Select four of the five Docusaurus instances in the pinned SWE-bench Multilingual test split to cover distinct frontend tooling behaviors: asset-path resolution, code-block language configuration, broken-link path matching, and version-dropdown routing. Selection is frozen before any Louibot or Mini-SWE-Agent run; no model outcome or reference patch was used.",
+  "instances": [
+    {
+      "id": "facebook__docusaurus-8927",
+      "title": "Same file + extension in directory names breaks relative image assets",
+      "createdAt": "2023-04-25 07:23:17",
+      "baseCommit": "41f1c1e3c26ad1e24acd3306077e2534dd8fa0db",
+      "version": "8927",
+      "failToPassCount": 2,
+      "passToPassCount": 12
+    },
+    {
+      "id": "facebook__docusaurus-9183",
+      "title": "Allow case-insensitivity for code block language",
+      "createdAt": "2023-07-28 08:43:19",
+      "baseCommit": "b96004e77ebfb23e7349fa495d2177008186bd42",
+      "version": "9183",
+      "failToPassCount": 1,
+      "passToPassCount": 35
+    },
+    {
+      "id": "facebook__docusaurus-10130",
+      "title": "Broken links checker: inconsistent trailing slash behavior",
+      "createdAt": "2024-05-10 14:25:15",
+      "baseCommit": "02e38d8ccf7811af27a9c15ddbadf4d26cfc0eab",
+      "version": "10130",
+      "failToPassCount": 1,
+      "passToPassCount": 34
+    },
+    {
+      "id": "facebook__docusaurus-10309",
+      "title": "Setting the `current` version's path to `/` freezes `docsVersionDropdown`",
+      "createdAt": "2024-07-18 11:10:38",
+      "baseCommit": "5e9e1d051b2217b95498ecbc10f7e33f64e7a4d3",
+      "version": "10309",
+      "failToPassCount": 4,
+      "passToPassCount": 8
+    }
+  ]
+}

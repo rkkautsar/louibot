@@ -7,6 +7,9 @@ export const schema = z
     model: z.string().regex(/^(openai|anthropic|openai-compatible)\/.+/),
     endpoint: z
       .object({
+        apiFormat: z
+          .enum(["chat-completions", "responses"])
+          .default("responses"),
         baseUrl: z.url().refine((value) => {
           const url = new URL(value);
           return (
@@ -47,12 +50,51 @@ export const schema = z
       contextWindowTokens: z.number().int().positive().default(200000),
       maxInputTokens: z.number().int().positive().default(160000),
       maxOutputTokens: z.number().int().positive().default(32000),
+      clarificationEnabled: z.boolean().default(true),
+      modelMaxRetries: z.number().int().min(0).max(5).default(2),
+      modelRequestTimeoutSeconds: z.number().int().positive().default(180),
       inputUsdPerMillion: z.number().nonnegative(),
       outputUsdPerMillion: z.number().nonnegative(),
     }),
     reviewer: z
       .object({
         enabled: z.boolean().default(false),
+        pairedWorkflow: z
+          .object({
+            enabled: z.boolean().default(false),
+            maxInvestigationRounds: z.number().int().min(1).max(8).default(8),
+            maxImplementationReviews: z.number().int().min(1).max(4).default(4),
+            evidenceJudge: z
+              .object({
+                accountIdEnv: z
+                  .string()
+                  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
+                  .default("CLOUDFLARE_ACCOUNT_ID"),
+                apiTokenEnv: z
+                  .string()
+                  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
+                  .default("CLOUDFLARE_API_TOKEN"),
+                inputUsdPerMillion: z.number().nonnegative().default(0.038),
+                minSupportedProbability: z.number().min(0).max(1).default(0.85),
+              })
+              .default({
+                accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
+                apiTokenEnv: "CLOUDFLARE_API_TOKEN",
+                inputUsdPerMillion: 0.038,
+                minSupportedProbability: 0.85,
+              }),
+          })
+          .default({
+            enabled: false,
+            maxInvestigationRounds: 8,
+            maxImplementationReviews: 4,
+            evidenceJudge: {
+              accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
+              apiTokenEnv: "CLOUDFLARE_API_TOKEN",
+              inputUsdPerMillion: 0.038,
+              minSupportedProbability: 0.85,
+            },
+          }),
         model: z
           .string()
           .regex(/^(openai|anthropic|openai-compatible)\/.+/)
@@ -61,12 +103,27 @@ export const schema = z
         inputUsdPerMillion: z.number().nonnegative().optional(),
         outputUsdPerMillion: z.number().nonnegative().optional(),
       })
-      .default({ enabled: false, maxSteps: 24 }),
+      .default({
+        enabled: false,
+        pairedWorkflow: {
+          enabled: false,
+          maxInvestigationRounds: 8,
+          maxImplementationReviews: 4,
+          evidenceJudge: {
+            accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
+            apiTokenEnv: "CLOUDFLARE_API_TOKEN",
+            inputUsdPerMillion: 0.038,
+            minSupportedProbability: 0.85,
+          },
+        },
+        maxSteps: 24,
+      }),
     sandbox: z
       .object({
         image: z.string().default("auto"),
         commandTimeoutSeconds: z.number().positive().default(120),
         network: z.enum(["bridge", "none"]).default("bridge"),
+        setupCommands: z.array(z.string().min(1).max(2000)).max(10).optional(),
       })
       .default({
         image: "auto",
@@ -125,6 +182,12 @@ export const schema = z
         path: ["reviewer"],
         message:
           "Set reviewer inputUsdPerMillion and outputUsdPerMillion when using a different reviewer model",
+      });
+    if (config.reviewer.pairedWorkflow.enabled && !config.reviewer.enabled)
+      context.addIssue({
+        code: "custom",
+        path: ["reviewer", "pairedWorkflow", "enabled"],
+        message: "Paired workflow requires reviewer.enabled",
       });
   });
 export type Config = z.infer<typeof schema>;

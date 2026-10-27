@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "actions": ["implement", "clarify", "breakdown", "decline"],
+  "firstDecision": "Score before scripted user replies are shown.",
+  "questionQuality": {
+    "scale": "0-2 per dimension, scored per question",
+    "dimensions": {
+      "relevance": "Does the answer change implementation, scope, or safety?",
+      "specificity": "Does the question identify the exact missing decision?",
+      "answerability": "Can the user answer it directly without doing the agent's investigation?",
+      "decisionImpact": "Would different answers lead to materially different work?"
+    }
+  },
+  "afterReplies": "Score whether the agent incorporated each reply and then chose an appropriate action. Evaluate the resulting patch with a separate hidden evaluator.",
+  "scriptedReplyPolicy": "Keep the reply sequence fixed across systems and record it in the host-side case manifest. Do not include evaluator expectations or reference patches in the agent prompt."
+}
