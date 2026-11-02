@@ -161,7 +161,7 @@ git push origin main --follow-tags
 
 The separate [benchmark harness](benchmarks/README.md) runs isolated headless cases and suites without opening GitHub issues or pull requests. It includes local fixtures, hidden evaluation, usage reports, and explicit dataset readiness.
 
-### Comparison with Mini-SWE-Agent
+### Test-hinted comparison with Mini-SWE-Agent
 
 We ran the same four frozen Docusaurus tasks (8927, 9183, 10130, 10309) through the paired workflow and through Mini-SWE-Agent. Both used the same base commits, Docker image, dependency setup, and hidden task tests.
 
@@ -177,4 +177,4 @@ Times are wall-clock per case from sandbox setup through grading. Costs are cach
 
 Louibot used GLM 5.3 Flash for planning (chat completions, high effort), DeepSeek V4.1 Flash for the two investigators and the implementer (low effort), DeepSeek V4.1 Flash for the reviewer (high effort), and up to five review rounds. Mini-SWE-Agent used its generic SWE-bench prompt with a 60-step and $1-per-case cap; DeepSeek and GLM ran at high effort, with GLM retrying only tasks DeepSeek did not pass. Mini-SWE submitted patches on every completed case but missed the hidden edge cases on all four; 8927 also exceeded its step cap under GLM.
 
-This is a single attempt per case and model on a four-task slice, not a general benchmark ranking. Mini-SWE-Agent is a generic single-agent baseline and was not tuned for Docusaurus; the hidden tests are intentionally unseen by both. Artifacts and per-case patches are under `.louibot/benchmarks/swe-multilingual-frontend-20261021/miniswe-commandcode/`.
+This is a single attempt per case and model on a four-task slice, not a general benchmark ranking. Mini-SWE-Agent is a generic single-agent baseline and was not tuned for Docusaurus. Louibot's benchmark configs pinned `validation.commands` to the task's own test file (for example `options.test.ts`, `markdownLinks.test.ts`); Mini-SWE-Agent received no such hint, and some of those paths were learned from earlier evaluator failures. The table is therefore a test-hinted comparison, not a blind capability comparison, and should not be read as general superiority. Hidden test contents were unseen by both. Artifacts and per-case patches are under `.louibot/benchmarks/swe-multilingual-frontend-20261021/miniswe-commandcode/`.
