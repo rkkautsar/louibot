@@ -18,9 +18,133 @@ import { formatDuration, tick } from "./workflow.js";
 import { runDoctor } from "./doctor.js";
 import { formatDiagnostic } from "./errors.js";
 import { discoverValidationCommands } from "./discovery.js";
+import {
+  benchmarkStatusIsSuccessful,
+  runBenchmarkCase,
+  runBenchmarkSuite,
+  scoreQuestionQuality,
+} from "./benchmark.js";
+import { fileURLToPath } from "node:url";
 const cli = new Command()
   .name("louibot")
   .description("Assign an issue. Get a draft PR.");
+const benchmark = cli
+  .command("benchmark")
+  .description("Run isolated, local coding-agent benchmarks");
+const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+const benchmarkAgentPath = fileURLToPath(
+  new URL("./benchmark-agent.js", import.meta.url),
+);
+const validateBenchmarkOptions = (options: {
+  agentCommand?: string;
+  config?: string;
+  tokenBudget?: string;
+  timeoutSeconds: string;
+}) => {
+  if (!!options.agentCommand === !!options.config)
+    throw new Error("Pass exactly one of --agent-command or --config");
+  const timeout = Number(options.timeoutSeconds);
+  if (!Number.isSafeInteger(timeout) || timeout <= 0)
+    throw new Error("--timeout-seconds must be a positive integer");
+  if (
+    options.tokenBudget &&
+    (!/^\d+$/.test(options.tokenBudget) || Number(options.tokenBudget) <= 4096)
+  )
+    throw new Error("--token-budget must be an integer above 4096");
+};
+benchmark
+  .command("run <case.json>")
+  .option(
+    "--agent-command <command>",
+    "Command for a real coding agent; it receives benchmark environment variables",
+  )
+  .option("--config <file>", "Louibot YAML config for the built-in adapter")
+  .option(
+    "--token-budget <tokens>",
+    "Requested cumulative token budget for the built-in adapter",
+  )
+  .option(
+    "--timeout-seconds <seconds>",
+    "Wall-clock limit per agent and evaluator command",
+    "300",
+  )
+  .option(
+    "--planning-only",
+    "Stop after paired pre-edit planning; skip patch capture evaluation",
+  )
+  .option(
+    "--implementation-plan <report.json>",
+    "Continue implementation from a reviewer-approved planning benchmark report",
+  )
+  .action(async (file: string, options) => {
+    validateBenchmarkOptions(options);
+    if (options.planningOnly && options.implementationPlan)
+      throw new Error("Choose either --planning-only or --implementation-plan");
+    if (options.tokenBudget)
+      process.env.BENCHMARK_TOKEN_BUDGET = options.tokenBudget;
+    if (options.config)
+      process.env.BENCHMARK_CONFIG_PATH = resolve(options.config);
+    if (options.planningOnly) process.env.BENCHMARK_PLANNING_ONLY = "1";
+    if (options.implementationPlan)
+      process.env.BENCHMARK_IMPLEMENTATION_PLAN_FILE = resolve(
+        options.implementationPlan,
+      );
+    const command =
+      options.agentCommand ??
+      `node ${shellQuote(benchmarkAgentPath)} --config ${shellQuote(resolve(options.config))}`;
+    const result = await runBenchmarkCase(
+      file,
+      command,
+      Number(options.timeoutSeconds) * 1000,
+    );
+    console.log(JSON.stringify(result, null, 2));
+    if (!benchmarkStatusIsSuccessful(result.status)) process.exitCode = 1;
+  });
+benchmark
+  .command("suite <suite.json>")
+  .option("--agent-command <command>", "Command for a real coding agent")
+  .option("--config <file>", "Louibot YAML config for the built-in adapter")
+  .option(
+    "--token-budget <tokens>",
+    "Requested cumulative token budget for the built-in adapter",
+  )
+  .option(
+    "--timeout-seconds <seconds>",
+    "Wall-clock limit per agent and evaluator command",
+    "300",
+  )
+  .action(async (file: string, options) => {
+    validateBenchmarkOptions(options);
+    if (options.tokenBudget)
+      process.env.BENCHMARK_TOKEN_BUDGET = options.tokenBudget;
+    if (options.config)
+      process.env.BENCHMARK_CONFIG_PATH = resolve(options.config);
+    const command =
+      options.agentCommand ??
+      `node ${shellQuote(benchmarkAgentPath)} --config ${shellQuote(resolve(options.config))}`;
+    const result = await runBenchmarkSuite(
+      file,
+      command,
+      Number(options.timeoutSeconds) * 1000,
+    );
+    console.log(JSON.stringify(result, null, 2));
+    if (result.passed !== result.total) process.exitCode = 1;
+  });
+benchmark
+  .command("score <report.json>")
+  .requiredOption(
+    "--scores <file>",
+    "JSON human scores for every recorded question",
+  )
+  .action(async (report: string, options) => {
+    console.log(
+      JSON.stringify(
+        await scoreQuestionQuality(report, options.scores),
+        null,
+        2,
+      ),
+    );
+  });
 const repositoryRoot = process.cwd(),
   stateDirectory = resolve(repositoryRoot, ".louibot");
 interface StartOptions {
@@ -28,11 +152,15 @@ interface StartOptions {
   model?: string;
   baseUrl?: string;
   apiKeyEnv?: string;
+  apiFormat?: "chat-completions" | "responses";
   tokenLimitParameter?: "max_tokens" | "max_completion_tokens";
   reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
   inputPrice?: string;
   outputPrice?: string;
   review?: boolean;
+  disableClarification?: boolean;
+  modelMaxRetries?: string;
+  modelRequestTimeoutSeconds?: string;
   reviewerModel?: string;
   reviewerMaxSteps?: string;
   reviewerInputPrice?: string;
@@ -66,6 +194,10 @@ function addStartOptions(command: Command) {
     .option("--model <provider/model>", "Model ID, e.g. openai/gpt-6-luna")
     .option("--base-url <url>", "OpenAI-compatible API base URL")
     .option(
+      "--api-format <format>",
+      "Compatible API format: chat-completions or responses",
+    )
+    .option(
       "--api-key-env <name>",
       "Host environment variable Louibot uses for the API key",
     )
@@ -76,6 +208,18 @@ function addStartOptions(command: Command) {
     .option("--output-price <usd>", "USD per million output tokens")
     .option("--review", "Enable the independent read-only review pass")
     .option("--no-review", "Disable the independent review pass")
+    .option(
+      "--disable-clarification",
+      "Do not pause to ask clarifying questions",
+    )
+    .option(
+      "--model-max-retries <count>",
+      "Retries for transient model completion failures (default: 2)",
+    )
+    .option(
+      "--model-request-timeout-seconds <seconds>",
+      "Timeout for each model request (default: 180)",
+    )
     .option("--reviewer-model <provider/model>", "Model ID for the reviewer")
     .option(
       "--reviewer-max-steps <count>",
@@ -151,6 +295,7 @@ async function resolveConfig(options: StartOptions) {
     options.clearEndpoint &&
     (options.baseUrl ||
       options.apiKeyEnv ||
+      options.apiFormat ||
       options.tokenLimitParameter ||
       options.reasoningEffort)
   )
@@ -196,6 +341,9 @@ async function resolveConfig(options: StartOptions) {
     contextWindowTokens: numeric(options.contextWindowTokens),
     maxInputTokens: numeric(options.maxInputTokens),
     maxOutputTokens: numeric(options.maxOutputTokens),
+    clarificationEnabled: options.disableClarification ? false : undefined,
+    modelMaxRetries: numeric(options.modelMaxRetries),
+    modelRequestTimeoutSeconds: numeric(options.modelRequestTimeoutSeconds),
     ...(pricing ?? {}),
   };
   if (options.inputPrice && options.outputPrice) {
@@ -209,6 +357,7 @@ async function resolveConfig(options: StartOptions) {
     );
   }
   const endpointOptions = defined({
+    apiFormat: options.apiFormat,
     baseUrl: options.baseUrl,
     apiKeyEnv:
       options.apiKeyEnv ??

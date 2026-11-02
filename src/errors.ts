@@ -40,6 +40,8 @@ function nextStepFor(name: string, code: string | undefined, message: string) {
     return "Raise --max-cost-usd or use a lower-cost model, then retry with @louibot implement.";
   if (text.includes("input token budget exceeded"))
     return "Reduce issue/context size or adjust --max-input-tokens and --context-window-tokens to the model's documented limits, then retry.";
+  if (/headers_timeout|connection.?timeout|api.?connection.?timeout/.test(text))
+    return "The model provider did not complete a request before the configured timeout. Louibot retries transient provider failures; check provider health and consider raising agent.modelRequestTimeoutSeconds, then retry.";
   if (name === "ZodError")
     return "Correct the invalid setting reported above; run louibot start --help or louibot doctor to review supported values, then retry.";
   if (/\b[a-z_][a-z0-9_]* is not set\b/i.test(message))

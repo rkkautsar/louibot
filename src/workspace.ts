@@ -1,16 +1,16 @@
 import { execFile, spawn } from "node:child_process";
+import { createReadStream } from "node:fs";
 import { promisify } from "node:util";
 import {
   cp,
+  chmod,
   lstat,
   mkdir,
   readdir,
   readFile,
   rm,
   rename,
-  unlink,
   writeFile,
-  chmod,
   rmdir,
   readlink,
   symlink,
@@ -20,7 +20,8 @@ import { createHash, randomUUID } from "node:crypto";
 
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT = 1024 * 1024;
-export const MAX_SHELL_OUTPUT = 40_000;
+const MAX_GIT_PATHS = 64 * 1024 * 1024;
+export const MAX_SHELL_OUTPUT = 12_000;
 const HOST_COMMAND_TIMEOUT = 120_000;
 const SHELL_OUTPUT_MARKER =
   "\n\n[output truncated by Louibot; showing the beginning and end]\n\n";
@@ -38,6 +39,15 @@ export function truncateShellOutput(output: string): string {
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function historyExcerpt(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  const marker = `...[${value.length - maxChars} characters omitted]...`;
+  const available = maxChars - marker.length;
+  const head = Math.ceil(available / 2);
+  const tail = available - head;
+  return `${value.slice(0, head)}${marker}${tail ? value.slice(-tail) : ""}`;
 }
 
 export function buildShellCaptureCommand(
@@ -91,6 +101,109 @@ export async function git(
     },
   });
   return stdout.trim();
+}
+
+const MAX_RECOVERY_DIFF = 24_000;
+
+async function snapshotWorkspaceTree(
+  worktree: string,
+  repositoryGitDir?: string,
+): Promise<string> {
+  const gitDir =
+    repositoryGitDir ??
+    resolve(worktree, await git(worktree, ["rev-parse", "--git-dir"]));
+  const indexPath = join(gitDir, `louibot-index-${randomUUID()}`);
+  const pathspecPath = `${indexPath}.paths`;
+  const environment = {
+    GIT_DIR: gitDir,
+    GIT_WORK_TREE: worktree,
+    GIT_INDEX_FILE: indexPath,
+  };
+  try {
+    await git(worktree, ["read-tree", "HEAD"], environment);
+    const listed = await execFileAsync(
+      "git",
+      ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+      {
+        cwd: worktree,
+        maxBuffer: MAX_GIT_PATHS,
+        timeout: HOST_COMMAND_TIMEOUT,
+        env: { ...process.env, ...environment },
+      },
+    );
+    const paths = [
+      ...new Set(listed.stdout.split("\0").filter(Boolean)),
+    ].filter(
+      (path) =>
+        path !== ".louibot" &&
+        !path.startsWith(".louibot/") &&
+        !secretPath(path),
+    );
+    if (paths.length) {
+      await writeFile(
+        pathspecPath,
+        paths.map((path) => `:(literal)${path}\0`).join(""),
+        { mode: 0o600 },
+      );
+      await git(
+        worktree,
+        [
+          "add",
+          "-A",
+          "--pathspec-from-file",
+          pathspecPath,
+          "--pathspec-file-nul",
+        ],
+        environment,
+      );
+    }
+    return await git(worktree, ["write-tree"], environment);
+  } finally {
+    await Promise.all([
+      rm(indexPath, { force: true }),
+      rm(`${indexPath}.lock`, { force: true }),
+      rm(pathspecPath, { force: true }),
+    ]);
+  }
+}
+
+export async function captureWorkspaceBaseline(
+  worktree: string,
+): Promise<string> {
+  return snapshotWorkspaceTree(worktree);
+}
+
+export async function diffWorkspaceFromBaseline(
+  worktree: string,
+  baselineTree: string,
+  repositoryGitDir?: string,
+): Promise<string> {
+  const currentTree = await snapshotWorkspaceTree(worktree, repositoryGitDir);
+  const { stdout } = await execFileAsync(
+    "git",
+    [
+      "diff",
+      "--binary",
+      "--no-ext-diff",
+      "--find-renames",
+      "--unified=3",
+      baselineTree,
+      currentTree,
+      "--",
+    ],
+    {
+      cwd: worktree,
+      maxBuffer: MAX_GIT_PATHS,
+      timeout: HOST_COMMAND_TIMEOUT,
+      env: {
+        ...process.env,
+        ...(repositoryGitDir ? { GIT_DIR: repositoryGitDir } : {}),
+      },
+    },
+  );
+  if (stdout.length <= MAX_RECOVERY_DIFF) return stdout.trim();
+  const half = Math.floor((MAX_RECOVERY_DIFF - 100) / 2);
+  return `${stdout.slice(0, half)}\n[baseline diff truncated by Louibot]\n${stdout.slice(-half)}`;
 }
 
 export async function prepare(
@@ -240,28 +353,240 @@ export async function prepareSandboxStage(
   }
 }
 
-async function removeEligible(path: string, prefix = ""): Promise<void> {
-  let entries;
+async function isIgnored(worktree: string, path: string): Promise<boolean> {
   try {
-    entries = await readdir(path, { withFileTypes: true });
+    await lstat(join(worktree, ".git"));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw error;
   }
-  for (const entry of entries) {
-    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.name === ".git" || entry.name === ".louibot" || secretPath(rel))
-      continue;
-    const full = join(path, entry.name);
-    const info = await lstat(full);
-    if (info.isDirectory() && !info.isSymbolicLink()) {
-      await removeEligible(full, rel);
-      try {
-        await rmdir(full);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOTEMPTY") throw error;
+  try {
+    await execFileAsync("git", ["check-ignore", "-q", "--", path], {
+      cwd: worktree,
+      timeout: HOST_COMMAND_TIMEOUT,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    return true;
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (code === 1 || code === "1") return false;
+    // Standalone workspaces and test fixtures may not have Git metadata.
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
+  }
+}
+
+async function fileDigest(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+async function sameEntry(
+  source: string,
+  destination: string,
+): Promise<boolean> {
+  let sourceInfo;
+  let destinationInfo;
+  try {
+    [sourceInfo, destinationInfo] = await Promise.all([
+      lstat(source),
+      lstat(destination),
+    ]);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  if (sourceInfo.isSymbolicLink() || destinationInfo.isSymbolicLink()) {
+    if (!sourceInfo.isSymbolicLink() || !destinationInfo.isSymbolicLink())
+      return false;
+    return (await readlink(source)) === (await readlink(destination));
+  }
+  if (sourceInfo.isDirectory() || destinationInfo.isDirectory())
+    return sourceInfo.isDirectory() && destinationInfo.isDirectory();
+  if (!sourceInfo.isFile() || !destinationInfo.isFile()) return false;
+  if (
+    sourceInfo.size !== destinationInfo.size ||
+    sourceInfo.mtimeMs !== destinationInfo.mtimeMs ||
+    (sourceInfo.mode & 0o777) !== (destinationInfo.mode & 0o777)
+  )
+    return false;
+
+  // A tool can preserve timestamps while changing content, so verify identical
+  // metadata before deciding that a file is unchanged.
+  const [sourceDigest, destinationDigest] = await Promise.all([
+    fileDigest(source),
+    fileDigest(destination),
+  ]);
+  return sourceDigest === destinationDigest;
+}
+
+async function removePath(
+  path: string,
+  worktree: string,
+  rel: string,
+  tracked: Set<string>,
+): Promise<void> {
+  const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  if (!info) return;
+  if (!tracked.has(rel) && (await isIgnored(worktree, rel))) return;
+  if (info.isDirectory() && !info.isSymbolicLink()) {
+    for (const name of await readdir(path)) {
+      if (name === ".git" || name === ".louibot") continue;
+      const child = `${rel}/${name}`;
+      if (secretPath(child)) continue;
+      await removePath(join(path, name), worktree, child, tracked);
+    }
+    await rmdir(path);
+  } else await rm(path, { force: true });
+}
+
+async function trackedPaths(worktree: string): Promise<Set<string>> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["ls-files", "--cached", "-z"],
+      {
+        cwd: worktree,
+        maxBuffer: MAX_GIT_PATHS,
+        timeout: HOST_COMMAND_TIMEOUT,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      },
+    );
+    const tracked = new Set<string>();
+    for (const file of stdout.split("\0").filter(Boolean)) {
+      tracked.add(file);
+      let parent = dirname(file).split(sep).join("/");
+      while (parent && parent !== ".") {
+        tracked.add(parent);
+        parent = dirname(parent).split(sep).join("/");
       }
-    } else await unlink(full);
+    }
+    return tracked;
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (code === 128 || code === "ENOENT") return new Set();
+    throw error;
+  }
+}
+
+async function syncChangedTree(
+  stage: string,
+  worktree: string,
+  tracked: Set<string>,
+  source: string,
+  destination: string,
+  prefix = "",
+): Promise<void> {
+  if (prefix && secretPath(prefix)) return;
+  const stageInfo = await lstat(source).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    },
+  );
+  const worktreeInfo = await lstat(destination).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    },
+  );
+
+  if (!stageInfo) {
+    if (
+      !prefix ||
+      !worktreeInfo ||
+      (!tracked.has(prefix) && (await isIgnored(worktree, prefix)))
+    )
+      return;
+    if (worktreeInfo.isDirectory() && !worktreeInfo.isSymbolicLink()) {
+      for (const name of await readdir(destination)) {
+        if (name === ".git" || name === ".louibot") continue;
+        const rel = `${prefix}/${name}`;
+        if (secretPath(rel)) continue;
+        await syncChangedTree(
+          stage,
+          worktree,
+          tracked,
+          join(source, name),
+          join(destination, name),
+          rel,
+        );
+      }
+      await rmdir(destination).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOTEMPTY") throw error;
+      });
+    } else await removePath(destination, worktree, prefix, tracked);
+    return;
+  }
+  if (
+    stageInfo.isSymbolicLink() ||
+    (!stageInfo.isDirectory() && !stageInfo.isFile())
+  ) {
+    if (prefix && !worktreeInfo && (await isIgnored(worktree, prefix))) return;
+    if (prefix && !secretPath(prefix)) {
+      const target = stageInfo.isSymbolicLink()
+        ? await readlink(source)
+        : undefined;
+      if (target === undefined || safeLinkTarget(stage, prefix, target)) {
+        if (!(await sameEntry(source, destination))) {
+          if (!tracked.has(prefix) && (await isIgnored(worktree, prefix)))
+            return;
+          await removePath(destination, worktree, prefix, tracked);
+          await mkdir(dirname(destination), { recursive: true });
+          if (target === undefined) await cp(source, destination);
+          else await symlink(target, destination);
+        }
+      } else if (worktreeInfo)
+        await removePath(destination, worktree, prefix, tracked);
+    }
+    return;
+  }
+
+  if (stageInfo.isFile()) {
+    if (
+      prefix &&
+      !secretPath(prefix) &&
+      !(await sameEntry(source, destination))
+    ) {
+      if (!tracked.has(prefix) && (await isIgnored(worktree, prefix))) return;
+      await removePath(destination, worktree, prefix, tracked);
+      await mkdir(dirname(destination), { recursive: true });
+      await cp(source, destination, { preserveTimestamps: true });
+      const copiedInfo = await lstat(source);
+      await chmod(destination, copiedInfo.mode & 0o777 & ~0o6000);
+    }
+    return;
+  }
+
+  if (prefix && !tracked.has(prefix) && (await isIgnored(worktree, prefix)))
+    return;
+  if (!worktreeInfo || !worktreeInfo.isDirectory()) {
+    await removePath(destination, worktree, prefix, tracked);
+    await mkdir(destination, { recursive: true, mode: stageInfo.mode & 0o777 });
+  }
+
+  const stageEntries = await readdir(source, { withFileTypes: true });
+  const worktreeEntries = await readdir(destination, { withFileTypes: true });
+  const names = new Set([
+    ...stageEntries.map((entry) => entry.name),
+    ...worktreeEntries.map((entry) => entry.name),
+  ]);
+  for (const name of names) {
+    if (name === ".git" || name === ".louibot") continue;
+    const rel = prefix ? `${prefix}/${name}` : name;
+    if (secretPath(rel)) continue;
+    await syncChangedTree(
+      stage,
+      worktree,
+      tracked,
+      join(source, name),
+      join(destination, name),
+      rel,
+    );
   }
 }
 
@@ -269,8 +594,13 @@ export async function syncWorkspaceFromStage(
   stage: string,
   worktree: string,
 ): Promise<void> {
-  await removeEligible(worktree);
-  await copyWorkspaceToStage(stage, worktree);
+  await syncChangedTree(
+    stage,
+    worktree,
+    await trackedPaths(worktree),
+    stage,
+    worktree,
+  );
 }
 
 export class Sandbox {
@@ -280,6 +610,8 @@ export class Sandbox {
   private started = false;
   private finished = false;
   private disposed = false;
+  private readonly shellHistory: Array<{ command: string; output: string }> =
+    [];
 
   constructor(
     private readonly image: string,
@@ -295,6 +627,50 @@ export class Sandbox {
   }
 
   private readonly cacheVolume: string;
+
+  recentShellHistory(limit = 8, excerptChars = 300): string {
+    return this.shellHistory
+      .slice(-limit)
+      .map(
+        ({ command, output }, index) =>
+          `${index + 1}. command: ${historyExcerpt(command, excerptChars)}\n   output: ${historyExcerpt(output, excerptChars)}`,
+      )
+      .join("\n");
+  }
+
+  shellCommands(limit = 32): string[] {
+    return this.shellHistory.slice(-limit).map(({ command }) => command);
+  }
+
+  async fileExists(relativePath: string): Promise<boolean> {
+    if (!this.stage || !this.stageReady)
+      throw new Error("Sandbox stage is not ready for file inspection");
+    const target = resolve(this.stage, relativePath);
+    const fromStage = relative(this.stage, target);
+    if (
+      fromStage === ".." ||
+      fromStage.startsWith(`..${sep}`) ||
+      isAbsolute(fromStage)
+    )
+      throw new Error("Sandbox file inspection must stay inside the workspace");
+    try {
+      await lstat(target);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+  }
+
+  async diffFromBaseline(baselineTree: string): Promise<string> {
+    if (!this.stage || !this.stageReady)
+      throw new Error("Sandbox stage is not ready for diffing");
+    const gitDir = resolve(
+      this.worktree,
+      await git(this.worktree, ["rev-parse", "--git-dir"]),
+    );
+    return diffWorkspaceFromBaseline(this.stage, baselineTree, gitDir);
+  }
 
   async start(): Promise<void> {
     if (this.started) return;
@@ -421,6 +797,24 @@ export class Sandbox {
   async shell(command: string, signal?: AbortSignal): Promise<string> {
     if (!this.started || this.disposed)
       throw new Error("Sandbox is not running");
+    return this.executeShell(this.id, command, signal);
+  }
+
+  async explorationShell(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    // Investigation and implementation share one container, so repro files
+    // in /tmp and prepared dependencies remain available across the handoff.
+    // The investigator is instructed not to edit product files before review.
+    return this.shell(command, signal);
+  }
+
+  private async executeShell(
+    containerId: string,
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
     if (signal?.aborted) throw new Error("Sandbox command cancelled");
     const outputPath = `/tmp/louibot-shell-${randomUUID()}.log`;
     return new Promise<string>((resolvePromise, rejectPromise) => {
@@ -428,7 +822,7 @@ export class Sandbox {
         "docker",
         [
           "exec",
-          this.id,
+          containerId,
           "sh",
           "-lc",
           buildShellCaptureCommand(command, outputPath),
@@ -465,11 +859,11 @@ export class Sandbox {
       };
       const stopContainer = async () => {
         try {
-          await this.docker(["kill", this.id]);
+          await this.docker(["kill", containerId]);
         } catch {
           // The container may already have stopped with the exec process.
         } finally {
-          this.started = false;
+          if (containerId === this.id) this.started = false;
         }
       };
       const abort = () => {
@@ -497,6 +891,8 @@ export class Sandbox {
       child.on("error", (error) => finish(error));
       child.on("close", (code) => {
         if (truncated) output += `${SHELL_OUTPUT_MARKER}${tail}`;
+        this.shellHistory.push({ command, output });
+        if (this.shellHistory.length > 32) this.shellHistory.shift();
         this.log(`Sandbox command exited with ${code}: ${command}\n${output}`);
         code === 0
           ? finish()

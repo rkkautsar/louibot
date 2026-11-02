@@ -1,0 +1,21 @@
+{
+  "dataset": "SWE-bench/SWE-bench_Verified",
+  "datasetRevision": "78f471bf655a3137b2e8a75af1501690ec009ec3",
+  "split": "test",
+  "repository": "django/django",
+  "selection": "Sort all Verified instances for django/django by created_at then instance_id; select rounded ordinal positions evenly across the full list. The selection was frozen before running Louibot and does not inspect patches, tests, or model outcomes.",
+  "instances": [
+    { "id": "django__django-7530", "createdAt": "2016-11-08T17:27:19Z", "baseCommit": "f8fab6f90233c7114d642dfe01a4e6d4cb14ee7d", "version": "1.11" },
+    { "id": "django__django-11239", "createdAt": "2019-04-16T09:44:54Z", "baseCommit": "d87bd29c4f8dfcdf3f4a4eb8340e6770a2416fe3", "version": "3.0" },
+    { "id": "django__django-11820", "createdAt": "2019-09-26T08:37:14Z", "baseCommit": "c2678e49759e5c4c329bff0eeca2886267005d21", "version": "3.1" },
+    { "id": "django__django-12419", "createdAt": "2020-02-05T10:02:56Z", "baseCommit": "7fa1a93c6c8109010a6ff3f604fda83b604e0e97", "version": "3.1" },
+    { "id": "django__django-13279", "createdAt": "2020-08-07T05:15:16Z", "baseCommit": "6e9c5ee88fc948e05b4a7d9f82a8861ed2b0343d", "version": "3.2" },
+    { "id": "django__django-13741", "createdAt": "2020-12-02T10:52:52Z", "baseCommit": "d746f28949c009251a8741ba03d156964050717f", "version": "3.2" },
+    { "id": "django__django-14155", "createdAt": "2021-03-19T15:44:25Z", "baseCommit": "2f13c476abe4ba787b6cb71131818341911f43cc", "version": "4.0" },
+    { "id": "django__django-14752", "createdAt": "2021-08-07T16:34:32Z", "baseCommit": "b64db05b9cedd96905d637a2d824cbbf428e40e7", "version": "4.0" },
+    { "id": "django__django-15315", "createdAt": "2022-01-13T18:51:58Z", "baseCommit": "652c68ffeebd510a6f59e1b56b3e007d07683ad8", "version": "4.1" },
+    { "id": "django__django-15863", "createdAt": "2022-07-20T12:58:04Z", "baseCommit": "37c5b8c07be104fd5288cd87f101e48cb7a40298", "version": "4.2" },
+    { "id": "django__django-16493", "createdAt": "2023-01-20T18:29:25Z", "baseCommit": "e3a4cee081cf60650b8824f0646383b79cb110e7", "version": "5.0" },
+    { "id": "django__django-17087", "createdAt": "2023-07-17T20:28:41Z", "baseCommit": "4a72da71001f154ea60906a2f74898d32b7322a7", "version": "5.0" }
+  ]
+}

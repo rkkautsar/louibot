@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "status": "harness-ready-datasets-not-ready",
+  "suites": [
+    {
+      "id": "swe-verified",
+      "targetCases": 20,
+      "readyCases": 0,
+      "status": "not-ready",
+      "source": "Official SWE Verified release; acquire under source terms",
+      "requires": [
+        "task IDs",
+        "immutable base revisions",
+        "separate evaluator provenance"
+      ]
+    },
+    {
+      "id": "chronological",
+      "targetCases": 12,
+      "readyCases": 0,
+      "status": "selection-frozen-not-prepared",
+      "source": "12 chronological issues selected from a pinned SWE-bench Verified Django release",
+      "requires": [
+        "local dataset acquisition and Django checkout",
+        "official SWE-bench Docker evaluator setup",
+        "36 matched runs across stateless, code-map, and prior-issue-history modes"
+      ]
+    },
+    {
+      "id": "swe-multilingual-frontend",
+      "targetCases": 4,
+      "readyCases": 0,
+      "status": "selection-frozen-not-prepared",
+      "source": "SWE-bench Multilingual test split; four JavaScript/TypeScript Docusaurus issues",
+      "requires": [
+        "local Docusaurus checkout containing all four pinned base commits",
+        "one pinned Node runtime and dependency setup shared across the four tasks",
+        "host-side private dataset and independent task-test evaluator"
+      ]
+    },
+    {
+      "id": "ambiguous-requests",
+      "targetCases": 12,
+      "readyCases": 0,
+      "status": "not-ready",
+      "source": "Authored issue requests and deterministic scripted replies",
+      "requires": [
+        "first-action label",
+        "reply sequence",
+        "question-quality rubric",
+        "independent patch evaluator"
+      ]
+    },
+    {
+      "id": "ui-optional",
+      "targetCases": 6,
+      "readyCases": 0,
+      "status": "not-ready",
+      "source": "Reproducible UI tasks",
+      "requires": [
+        "pinned browser/runtime",
+        "independent interaction evaluator",
+        "human-reviewed outcomes"
+      ]
+    }
+  ]
+}

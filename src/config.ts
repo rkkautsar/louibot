@@ -1,12 +1,23 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { z } from "zod";
+const reasoningEffortSchema = z.enum([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+]);
 export const schema = z
   .object({
     repository: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
     model: z.string().regex(/^(openai|anthropic|openai-compatible)\/.+/),
     endpoint: z
       .object({
+        apiFormat: z
+          .enum(["chat-completions", "responses"])
+          .default("responses"),
         baseUrl: z.url().refine((value) => {
           const url = new URL(value);
           return (
@@ -22,9 +33,7 @@ export const schema = z
         tokenLimitParameter: z
           .enum(["max_tokens", "max_completion_tokens"])
           .optional(),
-        reasoningEffort: z
-          .enum(["none", "minimal", "low", "medium", "high", "xhigh"])
-          .optional(),
+        reasoningEffort: reasoningEffortSchema.optional(),
       })
       .optional(),
     github: z
@@ -47,12 +56,69 @@ export const schema = z
       contextWindowTokens: z.number().int().positive().default(200000),
       maxInputTokens: z.number().int().positive().default(160000),
       maxOutputTokens: z.number().int().positive().default(32000),
+      clarificationEnabled: z.boolean().default(true),
+      modelMaxRetries: z.number().int().min(0).max(5).default(2),
+      modelRequestTimeoutSeconds: z.number().int().positive().default(180),
       inputUsdPerMillion: z.number().nonnegative(),
       outputUsdPerMillion: z.number().nonnegative(),
     }),
     reviewer: z
       .object({
         enabled: z.boolean().default(false),
+        pairedWorkflow: z
+          .object({
+            enabled: z.boolean().default(false),
+            investigatorReasoningEffort: reasoningEffortSchema.optional(),
+            implementerReasoningEffort: reasoningEffortSchema.optional(),
+            plannerModel: z
+              .string()
+              .regex(/^(openai|anthropic|openai-compatible)\/.+/)
+              .optional(),
+            plannerApiFormat: z
+              .enum(["chat-completions", "responses"])
+              .optional(),
+            plannerInputUsdPerMillion: z.number().nonnegative().optional(),
+            plannerOutputUsdPerMillion: z.number().nonnegative().optional(),
+            parallelInvestigations: z.number().int().min(1).max(4).default(2),
+            maxInvestigationRounds: z.number().int().min(1).max(8).default(8),
+            maxImplementationReviews: z
+              .number()
+              .int()
+              .min(1)
+              .max(10)
+              .default(5),
+            evidenceJudge: z
+              .object({
+                accountIdEnv: z
+                  .string()
+                  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
+                  .default("CLOUDFLARE_ACCOUNT_ID"),
+                apiTokenEnv: z
+                  .string()
+                  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
+                  .default("CLOUDFLARE_API_TOKEN"),
+                inputUsdPerMillion: z.number().nonnegative().default(0.038),
+                minSupportedProbability: z.number().min(0).max(1).default(0.85),
+              })
+              .default({
+                accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
+                apiTokenEnv: "CLOUDFLARE_API_TOKEN",
+                inputUsdPerMillion: 0.038,
+                minSupportedProbability: 0.85,
+              }),
+          })
+          .default({
+            enabled: false,
+            parallelInvestigations: 2,
+            maxInvestigationRounds: 8,
+            maxImplementationReviews: 5,
+            evidenceJudge: {
+              accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
+              apiTokenEnv: "CLOUDFLARE_API_TOKEN",
+              inputUsdPerMillion: 0.038,
+              minSupportedProbability: 0.85,
+            },
+          }),
         model: z
           .string()
           .regex(/^(openai|anthropic|openai-compatible)\/.+/)
@@ -61,12 +127,28 @@ export const schema = z
         inputUsdPerMillion: z.number().nonnegative().optional(),
         outputUsdPerMillion: z.number().nonnegative().optional(),
       })
-      .default({ enabled: false, maxSteps: 24 }),
+      .default({
+        enabled: false,
+        pairedWorkflow: {
+          enabled: false,
+          parallelInvestigations: 2,
+          maxInvestigationRounds: 8,
+          maxImplementationReviews: 5,
+          evidenceJudge: {
+            accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
+            apiTokenEnv: "CLOUDFLARE_API_TOKEN",
+            inputUsdPerMillion: 0.038,
+            minSupportedProbability: 0.85,
+          },
+        },
+        maxSteps: 24,
+      }),
     sandbox: z
       .object({
         image: z.string().default("auto"),
         commandTimeoutSeconds: z.number().positive().default(120),
         network: z.enum(["bridge", "none"]).default("bridge"),
+        setupCommands: z.array(z.string().min(1).max(2000)).max(10).optional(),
       })
       .default({
         image: "auto",
@@ -95,6 +177,41 @@ export const schema = z
         message: "Custom endpoints require the openai-compatible provider",
       });
     const reviewerModel = config.reviewer.model ?? config.model;
+    if (
+      config.reviewer.pairedWorkflow.plannerModel?.startsWith(
+        "openai-compatible/",
+      ) &&
+      !config.endpoint
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["reviewer", "pairedWorkflow", "plannerModel"],
+        message:
+          "The planner model uses openai-compatible and requires endpoint configuration",
+      });
+    const plannerModel =
+      config.reviewer.pairedWorkflow.plannerModel ?? config.model;
+    if (
+      config.reviewer.pairedWorkflow.plannerApiFormat &&
+      !plannerModel.startsWith("openai-compatible/")
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["reviewer", "pairedWorkflow", "plannerApiFormat"],
+        message:
+          "plannerApiFormat only applies to openai-compatible planner models",
+      });
+    if (
+      (config.reviewer.pairedWorkflow.investigatorReasoningEffort ||
+        config.reviewer.pairedWorkflow.implementerReasoningEffort) &&
+      !config.model.startsWith("openai-compatible/")
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["reviewer", "pairedWorkflow", "investigatorReasoningEffort"],
+        message:
+          "Reasoning effort overrides require an openai-compatible model",
+      });
     const reviewerHasInputPrice =
       config.reviewer.inputUsdPerMillion !== undefined;
     const reviewerHasOutputPrice =
@@ -125,6 +242,12 @@ export const schema = z
         path: ["reviewer"],
         message:
           "Set reviewer inputUsdPerMillion and outputUsdPerMillion when using a different reviewer model",
+      });
+    if (config.reviewer.pairedWorkflow.enabled && !config.reviewer.enabled)
+      context.addIssue({
+        code: "custom",
+        path: ["reviewer", "pairedWorkflow", "enabled"],
+        message: "Paired workflow requires reviewer.enabled",
       });
   });
 export type Config = z.infer<typeof schema>;

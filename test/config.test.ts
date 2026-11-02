@@ -25,6 +25,9 @@ test("GitHub phase labels have defaults", () => {
   assert.equal(config.agent.contextWindowTokens, 200000);
   assert.equal(config.agent.maxInputTokens, 160000);
   assert.equal(config.agent.maxOutputTokens, 32000);
+  assert.equal(config.agent.clarificationEnabled, true);
+  assert.equal(config.agent.modelMaxRetries, 2);
+  assert.equal(config.agent.modelRequestTimeoutSeconds, 180);
 });
 
 test("parallel job limit defaults to one and is bounded", () => {
@@ -81,6 +84,18 @@ test("sandbox network mode can disable internet access", () => {
 test("reviewer is opt-in and can use a separately priced model on the same provider", () => {
   assert.deepEqual(schema.parse(base).reviewer, {
     enabled: false,
+    pairedWorkflow: {
+      enabled: false,
+      parallelInvestigations: 2,
+      maxInvestigationRounds: 8,
+      maxImplementationReviews: 5,
+      evidenceJudge: {
+        accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
+        apiTokenEnv: "CLOUDFLARE_API_TOKEN",
+        inputUsdPerMillion: 0.038,
+        minSupportedProbability: 0.85,
+      },
+    },
     maxSteps: 24,
   });
   const parsed = schema.parse({
@@ -95,6 +110,120 @@ test("reviewer is opt-in and can use a separately priced model on the same provi
   });
   assert.equal(parsed.reviewer.model, "anthropic/claude-reviewer");
   assert.equal(parsed.reviewer.maxSteps, 8);
+  assert.equal(parsed.reviewer.pairedWorkflow.enabled, false);
+  const paired = schema.parse({
+    ...base,
+    model: "openai-compatible/openai/gpt-4o-mini",
+    endpoint: {
+      baseUrl: "https://example.test/v1",
+      apiKeyEnv: "TEST_KEY",
+    },
+    reviewer: {
+      enabled: true,
+      pairedWorkflow: {
+        enabled: true,
+        investigatorReasoningEffort: "low",
+        implementerReasoningEffort: "minimal",
+        plannerModel: "openai-compatible/openai/gpt-4o-mini",
+        plannerApiFormat: "chat-completions",
+        plannerInputUsdPerMillion: 0.15,
+        plannerOutputUsdPerMillion: 0.6,
+        parallelInvestigations: 3,
+        maxInvestigationRounds: 8,
+        maxImplementationReviews: 5,
+      },
+    },
+  });
+  assert.equal(paired.reviewer.pairedWorkflow.enabled, true);
+  assert.equal(
+    paired.reviewer.pairedWorkflow.investigatorReasoningEffort,
+    "low",
+  );
+  assert.equal(
+    paired.reviewer.pairedWorkflow.implementerReasoningEffort,
+    "minimal",
+  );
+  assert.equal(
+    paired.reviewer.pairedWorkflow.plannerModel,
+    "openai-compatible/openai/gpt-4o-mini",
+  );
+  assert.equal(
+    paired.reviewer.pairedWorkflow.plannerApiFormat,
+    "chat-completions",
+  );
+  assert.equal(paired.reviewer.pairedWorkflow.plannerInputUsdPerMillion, 0.15);
+  assert.equal(paired.reviewer.pairedWorkflow.plannerOutputUsdPerMillion, 0.6);
+  assert.equal(paired.reviewer.pairedWorkflow.parallelInvestigations, 3);
+  assert.equal(paired.reviewer.pairedWorkflow.maxInvestigationRounds, 8);
+  assert.equal(paired.reviewer.pairedWorkflow.maxImplementationReviews, 5);
+  assert.equal(
+    paired.reviewer.pairedWorkflow.evidenceJudge.minSupportedProbability,
+    0.85,
+  );
+  assert.throws(() =>
+    schema.parse({
+      ...base,
+      reviewer: {
+        enabled: true,
+        pairedWorkflow: {
+          enabled: true,
+          maxInvestigationRounds: 9,
+        },
+      },
+    }),
+  );
+  assert.throws(
+    () =>
+      schema.parse({
+        ...base,
+        reviewer: {
+          enabled: true,
+          pairedWorkflow: {
+            enabled: true,
+            investigatorReasoningEffort: "low",
+          },
+        },
+      }),
+    /openai-compatible/,
+  );
+  assert.throws(() =>
+    schema.parse({
+      ...base,
+      reviewer: {
+        enabled: true,
+        pairedWorkflow: { enabled: true, parallelInvestigations: 5 },
+      },
+    }),
+  );
+  assert.throws(() =>
+    schema.parse({
+      ...base,
+      reviewer: {
+        enabled: true,
+        pairedWorkflow: { enabled: true, maxImplementationReviews: 11 },
+      },
+    }),
+  );
+  assert.throws(() =>
+    schema.parse({
+      ...base,
+      reviewer: {
+        enabled: true,
+        pairedWorkflow: {
+          enabled: true,
+          plannerModel: "openai-compatible/z-ai/glm-5.3-flash",
+        },
+      },
+    }),
+  );
+  assert.throws(() =>
+    schema.parse({
+      ...base,
+      reviewer: {
+        pairedWorkflow: { enabled: true },
+      },
+    }),
+  );
   assert.throws(() =>
     schema.parse({
       ...base,

@@ -11,6 +11,7 @@ const compatibleConfig = schema.parse({
   repository: "owner/repo",
   model: "openai-compatible/openai/gpt-6-luna",
   endpoint: {
+    apiFormat: "chat-completions",
     baseUrl: "https://gateway.example/ai/v1",
     apiKeyEnv: "LOUIBOT_DOCTOR_TOKEN",
   },

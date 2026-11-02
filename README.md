@@ -4,6 +4,8 @@ Locally Orchestrated Issue Implementer Bot. Assign an issue. Get a draft PR. See
 
 Louibot runs the coding agent locally, uses a disposable Docker sandbox for shell access, and uses the GitHub CLI for collaboration. An optional fresh-context reviewer can inspect proposed changes in a read-only, offline sandbox before Louibot opens a draft PR. Louibot never merges PRs.
 
+For bug reports, Louibot first explores the relevant code and tests, ranks likely explanations, and tries to reproduce the leading one. If it cannot reproduce the behavior, it returns an inconclusive result with its evidence and remaining hypotheses; one fresh-context attempt then investigates from a different angle.
+
 ## Install
 
 Install the CLI globally or run it without a global install:
@@ -46,30 +48,30 @@ Cancellation preserves state. For a failed, blocked, or stopped job, post a new 
 
 ## OpenAI-compatible providers
 
-Choose `openai-compatible/<model-id>` with `--base-url` and `--api-key-env`. Set `--base-url` to the API root, such as `https://api.example.com/v1`; do not append `/chat/completions` because Louibot adds that route itself. Use `--token-limit-parameter` and `--reasoning-effort` for provider-specific Chat Completions settings. The selected model must support function tools. Model IDs may include slashes. Keys remain in the host environment and are never written into configuration or passed to Docker.
+Choose `openai-compatible/<model-id>` with `--base-url` and `--api-key-env`. Set `--base-url` to the API root, such as `https://api.example.com/v1`; do not append an endpoint path. Louibot uses the Responses API by default; pass `--api-format chat-completions` for a compatible service that only supports Chat Completions. Use `--token-limit-parameter` for compatible Chat Completions endpoints and `--reasoning-effort` for the selected API's reasoning parameter. The selected model must support function tools. Model IDs may include slashes. Keys remain in the host environment and are never written into configuration or passed to Docker.
 
-Cloudflare AI Gateway with `openai/gpt-6-luna` was verified with `max_completion_tokens` and `reasoning_effort: none`. Use the account API root ending in `/ai/v1`; do not add `/chat/completions`. For that endpoint, start Louibot with the following options, supplying the two prices that match your Cloudflare account:
+For Cloudflare AI Gateway, use the account API root ending in `/ai/v1`. GPT-6 Luna requires `reasoning_effort: none` for tool calls through Chat Completions; use the Responses API to run tool calls with reasoning. A bounded Luna Responses API tool-call smoke check passed with `reasoning.effort: low`. Supply prices that match your Cloudflare account:
 
 ```sh
 louibot start \
   --model openai-compatible/openai/gpt-6-luna \
   --base-url "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai/v1" \
   --api-key-env CLOUDFLARE_API_TOKEN \
-  --token-limit-parameter max_completion_tokens \
-  --reasoning-effort none \
+  --api-format responses \
+  --reasoning-effort low \
   --input-price "$INPUT_USD_PER_MILLION" \
   --output-price "$OUTPUT_USD_PER_MILLION"
 ```
 
-Use prices that match your Cloudflare account's billing. Other compatible endpoints may need different settings; check their Chat Completions documentation rather than assuming Cloudflare's parameters apply.
+Use prices that match your Cloudflare account's billing. Other compatible endpoints may need different settings; check their API documentation rather than assuming Cloudflare's parameters apply.
 
-All settings can be passed to `louibot start` or `louibot doctor`. For repeated use, save defaults in `.louibot/config.yaml` and override any of them per invocation. CLI flags take precedence; no setup command is required. `louibot start --help` lists the flags. Reviewer options are `--review` / `--no-review`, `--reviewer-model`, `--reviewer-max-steps`, `--reviewer-input-price`, and `--reviewer-output-price`. The reviewer defaults to 24 steps; if review is skipped, the PR run summary names the failure type, suggests increasing the cap when it is reached, and shows the configured limit. Detailed errors remain in local logs. A different reviewer model must use the same provider and endpoint as the implementation model; its price rates are required unless Louibot has published direct-model pricing. The reviewer is disabled by default. The remaining YAML fields map to `--repository`, `--model`, `--base-url`, `--api-key-env`, `--token-limit-parameter`, `--reasoning-effort`, `--issue-label`, `--blocked-label`, `--done-label`, `--poll-interval-seconds`, `--max-concurrent-jobs`, `--max-steps`, `--max-cost-usd`, `--context-window-tokens`, `--max-input-tokens`, `--max-output-tokens`, `--input-price`, `--output-price`, `--sandbox-image`, `--command-timeout-seconds`, `--sandbox-network`, and repeatable `--validation-command`. Use `--clear-validation-commands` to return to automatic validation discovery and `--clear-endpoint` to remove a saved compatible API endpoint. The default token limits are 200,000 context tokens, 160,000 input tokens, and 32,000 output tokens. These leave headroom within a 200K context window; raise them only when the selected model and endpoint document larger limits.
+All settings can be passed to `louibot start` or `louibot doctor`. For repeated use, save defaults in `.louibot/config.yaml` and override any of them per invocation. CLI flags take precedence; no setup command is required. `louibot start --help` lists the flags. Reviewer options are `--review` / `--no-review`, `--reviewer-model`, `--reviewer-max-steps`, `--reviewer-input-price`, and `--reviewer-output-price`. The reviewer defaults to 24 steps; if review is skipped, the PR run summary names the failure type, suggests increasing the cap when it is reached, and shows the configured limit. Detailed errors remain in local logs. A different reviewer model must use the same provider and endpoint as the implementation model; its price rates are required unless Louibot has published direct-model pricing. The reviewer is disabled by default. The remaining YAML fields map to `--repository`, `--model`, `--base-url`, `--api-key-env`, `--api-format`, `--token-limit-parameter`, `--reasoning-effort`, `--issue-label`, `--blocked-label`, `--done-label`, `--poll-interval-seconds`, `--max-concurrent-jobs`, `--max-steps`, `--max-cost-usd`, `--context-window-tokens`, `--max-input-tokens`, `--max-output-tokens`, `--input-price`, `--output-price`, `--sandbox-image`, `--command-timeout-seconds`, `--sandbox-network`, and repeatable `--validation-command`. Use `--clear-validation-commands` to return to automatic validation discovery and `--clear-endpoint` to remove a saved compatible API endpoint. The default token limits are 200,000 context tokens, 160,000 input tokens, and 32,000 output tokens. These leave headroom within a 200K context window; raise them only when the selected model and endpoint document larger limits.
 
 Louibot prints the controller validation commands selected when `start` launches and `doctor` reports the same plan. By default, repositories with no discovered checks can still run. Require at least one check with `validation.required: true` in `.louibot/config.yaml` or `--require-validation`; use `--allow-no-validation` to override a saved requirement for one run. You can set explicit commands with `validation.commands` or repeat `--validation-command`.
 
 `louibot doctor` checks GitHub access, Docker, the model key, the discovered sandbox image, and repository validation commands. It prints the name of the selected host environment variable, hides its value, and sends a small model request that requires the endpoint to return a tool call; the provider may charge for that request. It also starts the selected image in an isolated, network-disabled container and runs a harmless command. Louibot reads credentials from the process environment and does not load `.env` files or reuse Wrangler's saved login automatically. For Cloudflare, pass a token with Account Workers AI Read permission through the configured variable; for example, `export CLOUDFLARE_API_TOKEN="$(wrangler auth token)"`. A 401/403 usually means the selected token is missing, invalid, or lacks that permission. `--sandbox-image auto` uses a directly referenced image from `.devcontainer/devcontainer.json` when available, then selects a common language image from repository files, and finally falls back to `node:22`. Set an explicit image when the repository needs a custom toolchain; Louibot does not build arbitrary Dockerfiles automatically. Automatic validation discovery is used unless one or more `--validation-command` flags override it.
 
-If a model returns a malformed or truncated tool call, Louibot makes one recovery attempt in the same conversation. If that also fails, the issue comment and local log explain the output limit and how to retry with a higher `--max-output-tokens` value.
+Clarification is enabled by default for human issue authors; use `--disable-clarification` for agent-to-agent tasks and benchmarks. Transient model timeouts, rate limits, and server errors receive up to two fresh-conversation retries by default. Configure `agent.modelMaxRetries` and `agent.modelRequestTimeoutSeconds` in `.louibot/config.yaml`. If a model returns a malformed or truncated tool call, Louibot makes one recovery attempt in a fresh conversation while preserving the workspace. If that also fails, the issue comment and local log explain the output limit and how to retry with a higher `--max-output-tokens` value.
 
 OpenAI and Anthropic providers read `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` respectively unless a compatible endpoint specifies another host environment variable. Credentials stay in the host environment and are never written into configuration or passed to Docker.
 
@@ -94,6 +96,29 @@ Draft PRs and revision comments include a Louibot run summary with the implement
 ### Optional independent review
 
 Enable it with `louibot start --review` or `reviewer.enabled: true` in `.louibot/config.yaml`. The reviewer gets a separate conversation, a changed-file list and bounded diff excerpt, and can inspect surrounding repository code and tests. Its Docker workspace is mounted read-only, has no network or shared build cache, and receives no credentials. It reports only concrete findings; valid findings are sent back to the implementer once before publication. Review errors or budget exhaustion are recorded as skipped so an optional reviewer cannot strand a successful implementation. Skipped reviews include the configured step cap in the PR summary; detailed errors remain in local logs. Review calls count against the same per-issue spend limit.
+
+For a paired workflow, set `reviewer.pairedWorkflow.enabled: true` while keeping `reviewer.enabled: true`. The planner formulates `reviewer.pairedWorkflow.parallelInvestigations` competing root-cause hypotheses (default 2), independent read-only investigators test them in parallel, and the planner synthesizes a root cause and implementation plan. Set `reviewer.pairedWorkflow.plannerModel` to use a different planner model, and `reviewer.pairedWorkflow.plannerApiFormat` when that model's provider serves a different endpoint format than `endpoint.apiFormat`. Set `investigatorReasoningEffort` and `implementerReasoningEffort` to tune those stages independently of `endpoint.reasoningEffort`; the planner and reviewer continue to use the endpoint effort. The implementer then applies the plan in the shared sandbox, and an independent reviewer inspects the patch and can run focused checks against the same writable workspace. The implementer must produce a non-test source change; if it has not after four controller nudges, the run fails explicitly. The reviewer runs for up to `reviewer.pairedWorkflow.maxImplementationReviews` rounds (default 5); each round returns findings to the implementer for one repair, except the final round, which is reviewed without a repair so the last reviewed patch is the one evaluated. Approval requires at least one executed check with its command and key result: the paired reviewer's approval is rejected as inconsistent without one, and the independent reviewer converts a pass without checks into findings. An unapproved patch ends the run as inconclusive. Both roles share the issue cost ceiling.
+
+The main paired workflow does not use Cloudflare Workers AI; its reviewers rely on the supplied diff, controller validation records, and their own shell checks. Clef-Flash is used only by the benchmark planning modes described below. Set `CLOUDFLARE_ACCOUNT_ID` and either `CLOUDFLARE_API_TOKEN` or use an active Wrangler login for those modes. The judge uses the configured `agent.modelRequestTimeoutSeconds` and reserves its estimated input cost from the shared job budget. The default rate is `$0.038` per million input tokens and can be changed under `reviewer.pairedWorkflow.evidenceJudge.inputUsdPerMillion`.
+
+For a planning-only benchmark trial, run `louibot benchmark run <case.json> --config <config.yaml> --planning-only`. It skips evaluator setup and grading. Before substantive review, Cloudflare `@cf/cloudflare/clef-flash` checks each plan using four fixed structured choices: implementation steps, evidence link, reported-path validation, and blocking uncertainty. Only a concrete implementation plan with linked evidence, observable validation of the reported path, and no fix-blocking uncertainty reaches the reviewer. A broad investigation plan is returned to the planner with deterministic checklist feedback; a decisive unknown can trigger a bounded read-only investigation and a new plan. This gate allows up to four blocks per candidate without consuming a reviewer round. Each reviewer round starts fresh with the issue, latest plan and revision diff, notes, and review threads. The reviewer opens and resolves anchored concerns; the planner replies to every open blocking thread. Clef checks those replies before review and sends missing or unclear replies directly back to the planner, also up to four times without consuming a reviewer round. Approval applies only to the exact reviewed revision and requires no open blocking threads. The report records the plan, notes, revision, threads, approval state, Clef-Flash blocks, and reviewer-round count. This requires the paired workflow to be enabled.
+
+To continue from an approved plan report, run `louibot benchmark run <case.json> --config <config.yaml> --implementation-plan <planning-report.json>`. The runner verifies the task and base commit, passes the approved plan, evidence ledger, notes, revision, and review threads into a fresh implementation context, then runs the evaluator. The implementation reviewer gets at most two fresh review rounds with anchored threads; after round one, Clef-Flash checks claimed source changes before the reviewer sees the repair. No repair is made after the final review, so the evaluated patch is the last reviewed patch. This mode requires the paired workflow to be enabled.
+
+```yaml
+reviewer:
+  enabled: true
+  pairedWorkflow:
+    enabled: true
+    parallelInvestigations: 2
+    maxInvestigationRounds: 8
+    maxImplementationReviews: 5
+    evidenceJudge:
+      accountIdEnv: CLOUDFLARE_ACCOUNT_ID
+      apiTokenEnv: CLOUDFLARE_API_TOKEN
+      inputUsdPerMillion: 0.038
+      minSupportedProbability: 0.85
+```
 
 ### Requesting revisions
 
@@ -131,3 +156,25 @@ After that one-time setup, update the version with `npm version <version>`, push
 npm version patch
 git push origin main --follow-tags
 ```
+
+## Local benchmarks
+
+The separate [benchmark harness](benchmarks/README.md) runs isolated headless cases and suites without opening GitHub issues or pull requests. It includes local fixtures, hidden evaluation, usage reports, and explicit dataset readiness.
+
+### Comparison with Mini-SWE-Agent
+
+We ran the same four frozen Docusaurus tasks (8927, 9183, 10130, 10309) through the paired workflow and through Mini-SWE-Agent. Both used the same base commits, Docker image, dependency setup, and hidden task tests.
+
+| Task      | Louibot paired workflow    | Mini-SWE DeepSeek V4.1 Flash high | Mini-SWE GLM 5.3 Flash high  |
+| --------- | -------------------------- | --------------------------------- | ---------------------------- |
+| 8927      | failed · 18.4 min · $0.29  | failed · 5.4 min · $0.09          | step limit · 9.5 min · $0.20 |
+| 9183      | passed · 17.0 min · $0.47  | failed · 4.5 min · $0.09          | failed · 5.7 min · $0.11     |
+| 10130     | passed · 17.2 min · $0.30  | failed · 4.5 min · $0.09          | failed · 6.7 min · $0.13     |
+| 10309     | passed · 18.6 min · $0.32  | failed · 4.4 min · $0.08          | failed · 6.5 min · $0.11     |
+| **Total** | **3/4 · 71.2 min · $1.39** | **0/4 · 18.8 min · $0.35**        | **0/4 · 28.3 min · $0.55**   |
+
+Times are wall-clock per case from sandbox setup through grading. Costs are list-price estimates from input and output token counts at DeepSeek V4.1 Flash ($0.15/M input, $0.60/M output) and GLM 5.3 Flash ($0.15/M input, $0.50/M output), excluding cache-read discounts; billed amounts are lower on long agent loops. Louibot's aggregate tokens are priced at the DeepSeek rates; its planner GLM output is slightly cheaper.
+
+Louibot used GLM 5.3 Flash for planning (chat completions, high effort), DeepSeek V4.1 Flash for the two investigators and the implementer (low effort), DeepSeek V4.1 Flash for the reviewer (high effort), and up to five review rounds. Mini-SWE-Agent used its generic SWE-bench prompt with a 60-step and $1-per-case cap; DeepSeek and GLM ran at high effort, with GLM retrying only tasks DeepSeek did not pass. Mini-SWE submitted patches on every completed case but missed the hidden edge cases on all four; 8927 also exceeded its step cap under GLM.
+
+This is a single attempt per case and model on a four-task slice, not a general benchmark ranking. Mini-SWE-Agent is a generic single-agent baseline and was not tuned for Docusaurus; the hidden tests are intentionally unseen by both. Artifacts and per-case patches are under `.louibot/benchmarks/swe-multilingual-frontend-20261021/miniswe-commandcode/`.
