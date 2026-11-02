@@ -221,6 +221,10 @@ test("compatible Responses API uses reasoning and the Responses token limit", ()
     assert.equal(params.max_output_tokens, 1234);
     assert.deepEqual(params.reasoning, { effort: "low" });
     assert.equal(params.max_completion_tokens, undefined);
+    const override = createModel(c, undefined, 1234, {
+      reasoningEffort: "minimal",
+    }).invocationParams();
+    assert.deepEqual(override.reasoning, { effort: "minimal" });
   } finally {
     if (old === undefined) delete process.env.LOUIBOT_TEST_CREDENTIAL;
     else process.env.LOUIBOT_TEST_CREDENTIAL = old;
@@ -262,6 +266,62 @@ test("compatible Responses API streams function calls from the Responses endpoin
     assert.equal(called, true);
     assert.equal(response.tool_calls?.[0].name, "shell");
     assert.deepEqual(response.tool_calls?.[0].args, { command: "ls" });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (old === undefined) delete process.env.LOUIBOT_TEST_CREDENTIAL;
+    else process.env.LOUIBOT_TEST_CREDENTIAL = old;
+  }
+});
+
+test("Responses transport tolerates omitted empty annotations", async () => {
+  const originalFetch = globalThis.fetch;
+  const old = process.env.LOUIBOT_TEST_CREDENTIAL;
+  process.env.LOUIBOT_TEST_CREDENTIAL = "responses-test-value";
+  const message = {
+    id: "msg_test",
+    type: "message",
+    role: "assistant",
+    status: "completed",
+    content: [{ type: "output_text", text: "hello" }],
+  };
+  const response = {
+    id: "resp_test",
+    object: "response",
+    created_at: 1,
+    model: "vendor/model-name",
+    status: "completed",
+    output: [message],
+    usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+  };
+  globalThis.fetch = async () =>
+    responsesSse([
+      responseEvent("response.created", { response }),
+      responseEvent("response.output_item.added", {
+        output_index: 0,
+        item: { ...message, content: [] },
+      }),
+      responseEvent("response.output_text.delta", {
+        output_index: 0,
+        content_index: 0,
+        delta: "hello",
+      }),
+      responseEvent("response.output_item.done", {
+        output_index: 0,
+        item: message,
+      }),
+      responseEvent("response.completed", { response }),
+    ]);
+  try {
+    const c = schema.parse({
+      ...base,
+      endpoint: { ...base.endpoint, apiFormat: "responses" },
+    });
+    const result = await createModel(c).invoke("Say hello");
+    const text =
+      typeof result.content === "string"
+        ? result.content
+        : JSON.stringify(result.content);
+    assert.match(text, /hello/);
   } finally {
     globalThis.fetch = originalFetch;
     if (old === undefined) delete process.env.LOUIBOT_TEST_CREDENTIAL;

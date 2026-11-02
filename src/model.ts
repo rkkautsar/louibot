@@ -51,7 +51,76 @@ function runawayToolCallError(reason: string): Error {
   return error;
 }
 
+function normalizeResponsesPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object" || !("output" in payload)) return;
+  const output = payload.output;
+  if (!Array.isArray(output)) return;
+  for (const item of output) {
+    if (!item || typeof item !== "object" || !("type" in item)) continue;
+    if (item.type !== "message" || !("content" in item)) continue;
+    const content = item.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (!part || typeof part !== "object" || !("type" in part)) continue;
+      if (part.type !== "output_text") continue;
+      if (!("annotations" in part) || !Array.isArray(part.annotations))
+        Object.assign(part, { annotations: [] });
+    }
+  }
+}
+
+function normalizeResponsesEvent(event: unknown) {
+  if (!event || typeof event !== "object") return;
+  if ("response" in event) normalizeResponsesPayload(event.response);
+  if ("item" in event) normalizeResponsesPayload({ output: [event.item] });
+}
+
+function wrapResponsesStream(stream: unknown) {
+  if (!stream || typeof stream !== "object") return stream;
+  return new Proxy(stream, {
+    get(target, property, receiver) {
+      if (property === Symbol.asyncIterator)
+        return async function* () {
+          // Proxy target is the SDK stream, which is async iterable.
+          const iterable = target as AsyncIterable<unknown>;
+          for await (const event of iterable) {
+            normalizeResponsesEvent(event);
+            yield event;
+          }
+        };
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
 class GuardedChatOpenAIResponses extends ChatOpenAIResponses {
+  constructor(fields: ConstructorParameters<typeof ChatOpenAIResponses>[0]) {
+    super(fields);
+    // Some OpenAI-compatible providers omit empty annotation arrays, while
+    // LangChain's Responses converter assumes the field is present. Wrap the
+    // retry method so both streaming and non-streaming results are normalized
+    // before conversion runs.
+    const original = this.completionWithRetry.bind(this) as unknown as (
+      request: unknown,
+      options?: unknown,
+    ) => Promise<unknown>;
+    Object.defineProperty(this, "completionWithRetry", {
+      configurable: true,
+      value: async (request: unknown, options?: unknown) => {
+        const result = await original(request, options);
+        if (
+          request &&
+          typeof request === "object" &&
+          "stream" in request &&
+          request.stream
+        )
+          return wrapResponsesStream(result);
+        normalizeResponsesPayload(result);
+        return result;
+      },
+    });
+  }
+
   override async *_streamResponseChunks(
     ...args: Parameters<ChatOpenAIResponses["_streamResponseChunks"]>
   ): AsyncGenerator<ChatGenerationChunk> {
@@ -120,13 +189,24 @@ class GuardedChatOpenAIResponses extends ChatOpenAIResponses {
   }
 }
 
+export type ReasoningEffort =
+  "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
 export function createModel(
   config: Config,
   model = config.model,
   maxTokens = config.agent.maxOutputTokens,
+  options: {
+    apiFormat?: "chat-completions" | "responses";
+    reasoningEffort?: ReasoningEffort;
+  } = {},
 ) {
   const [provider, ...modelIdParts] = model.split("/");
   const modelId = modelIdParts.join("/");
+  const apiFormat =
+    options.apiFormat ?? config.endpoint?.apiFormat ?? "responses";
+  const reasoningEffort =
+    options.reasoningEffort ?? config.endpoint?.reasoningEffort;
   const modelOptions = {
     model: modelId,
     maxTokens,
@@ -141,12 +221,12 @@ export function createModel(
       throw new Error(
         `Set ${config.endpoint.apiKeyEnv} in the host environment`,
       );
-    if (config.endpoint.apiFormat === "responses")
+    if (apiFormat === "responses")
       return new GuardedChatOpenAIResponses({
         ...modelOptions,
         streaming: true,
-        modelKwargs: config.endpoint.reasoningEffort
-          ? { reasoning: { effort: config.endpoint.reasoningEffort } }
+        modelKwargs: reasoningEffort
+          ? { reasoning: { effort: reasoningEffort } }
           : {},
         apiKey,
         configuration: { baseURL: config.endpoint.baseUrl },
@@ -166,9 +246,7 @@ export function createModel(
         ...(completionLimit
           ? { max_completion_tokens: modelOptions.maxTokens }
           : {}),
-        ...(config.endpoint.reasoningEffort
-          ? { reasoning_effort: config.endpoint.reasoningEffort }
-          : {}),
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       },
       apiKey,
       configuration: { baseURL: config.endpoint.baseUrl },

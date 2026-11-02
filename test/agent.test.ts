@@ -18,31 +18,21 @@ import {
   validationPatchFingerprint,
   implementationReviewInput,
   implementationReviewIssues,
-  investigationReviewSchema,
-  normalizeInvestigationReview,
-  pairedPatchReviewSchema,
-  pairedPatchApprovalIssues,
-  pairedCarryoverFindingsFromText,
   implementationRecursionLimit,
   investigationCommandCap,
-  investigationRecursionLimit,
-  pairedInvestigationContinuation,
   pairedImplementationContinuation,
-  pairedReviewApprovalEvidenceRequirement,
-  pairedReviewOutcomeRequirement,
-  requestedChecksNeedingReview,
-  pairedReviewEvidenceFollowUp,
   needsBlockedContinuation,
   needsCompletionContinuation,
   parseAgentResponse,
-  pairedReviewMessages,
   resultSchemaFor,
+  hypothesesSchemaFor,
   missingBlockingPlanningReplies,
   planningApprovalIsValid,
   planningReviewIssues,
   planningRevisionDiff,
   mergePlanningEvidenceLedger,
   normalizePlanningSubmission,
+  normalizeReviewResult,
   planningSubmissionSchema,
 } from "../src/agent.js";
 
@@ -469,6 +459,7 @@ test("implementation approval requires evidence for every reported behavior", ()
         evidence: "Only the rendered class name is normalized.",
       },
     ],
+    checks: [],
     concernUpdates: [],
     newConcerns: [],
   };
@@ -481,80 +472,64 @@ test("implementation approval requires evidence for every reported behavior", ()
   assert.ok(issues.some((issue) => issue.includes("not verified")));
 });
 
-test("legacy paired patch approval carries unresolved review findings into its gate", () => {
-  const quote = "uppercase PHP fails";
-  const command = "yarn test php-language";
-  const diff = "candidate patch";
-  const fingerprint = validationPatchFingerprint(diff);
-  const validationChecks = [
+test("review normalization cannot bypass the checks gate", () => {
+  const normalized = normalizeReviewResult({
+    status: "findings",
+    summary: "",
+    findings: [],
+    checks: [],
+  });
+  assert.equal(normalized.status, "findings");
+  assert.ok(
+    normalized.findings.some((finding) =>
+      finding.title.includes("no executed checks"),
+    ),
+  );
+  assert.equal(
+    normalizeReviewResult({
+      status: "pass",
+      summary: "",
+      findings: [],
+      checks: [{ command: "yarn test", result: "passed" }],
+    }).status,
+    "pass",
+  );
+});
+
+test("approval requires at least one executed check", () => {
+  const reportedBehaviors = [
     {
-      id: "check-1",
-      command,
-      expectedOutcome: "Uppercase and lowercase PHP both highlight.",
-      reportedBehaviorQuotes: [quote],
-    },
-  ];
-  const carryoverFindings = [
-    {
-      findingId: "pre-edit-1",
-      text: "Check configured PHP component loading.",
+      quote: "uppercase PHP fails",
+      expectedOutcome: "uppercase PHP works",
+      planStepId: "step-1",
+      validation: "configuration test",
     },
   ];
   const review = {
-    status: "pass" as const,
-    summary: "The issue is fixed.",
-    findings: [],
+    reviewedRevisionId: "patch-1",
+    decision: "approve" as const,
+    summary: "Patch covers the report.",
     behaviorChecks: [
       {
-        quote,
+        quote: "uppercase PHP fails",
         status: "verified" as const,
-        evidence: "The focused test passes.",
+        evidence: "The behavior anchor is implemented.",
       },
     ],
-    carryoverFindings: [
-      {
-        findingId: "pre-edit-1",
-        status: "verified" as const,
-        evidence:
-          "The check covers both configured component loading and rendering.",
-      },
-    ],
-    evidence: [
-      {
-        findingId: "pre-edit-1",
-        claim: "The focused PHP test covers the carried concern.",
-        command,
-      },
-    ],
+    concernUpdates: [],
+    newConcerns: [],
+    checks: [] as { command: string; result: string }[],
   };
-  const base = {
-    review,
-    reportedExamples: [{ literal: quote }],
-    carryoverFindings,
-    evidenceSupported: [true],
-    requiredChecks: validationChecks,
-    controllerValidationResults: controllerValidationRecords({
-      checks: [
-        {
-          checkId: "check-1",
-          command,
-          status: "passed",
-          output: "1 test passed",
-        },
-      ],
-      diff,
-      attempt: 1,
-    }),
-    currentPatchFingerprint: fingerprint,
-  };
-  assert.deepEqual(pairedPatchApprovalIssues(base), []);
-  assert.ok(
-    pairedPatchApprovalIssues({
-      ...base,
-      evidenceSupported: [false],
-      controllerValidationResults: [],
-    }).some((issue) => issue.includes("independently supported")),
-  );
+  const issues = () =>
+    implementationReviewIssues({
+      review,
+      revisionId: "patch-1",
+      concerns: [],
+      reportedBehaviors,
+    });
+  assert.ok(issues().some((issue) => issue.includes("executed check")));
+  review.checks = [{ command: "yarn test configuration", result: "passed" }];
+  assert.ok(!issues().some((issue) => issue.includes("executed check")));
 });
 
 test("planned checks for absent tests are optional rather than failed", async () => {
@@ -641,18 +616,6 @@ test("validation repair gets a distinct checkpoint and compact failure evidence"
   assert.match(compact, /end$/);
 });
 
-test("unapproved investigation findings receive stable IDs for final review", () => {
-  assert.deepEqual(
-    pairedCarryoverFindingsFromText(
-      "First unresolved check.\n- Second finding.",
-    ),
-    [
-      { findingId: "pre-edit-1", text: "First unresolved check." },
-      { findingId: "pre-edit-2", text: "Second finding." },
-    ],
-  );
-});
-
 test("implementation review receives approved plan without stale plan thread IDs", () => {
   const approvedPlan = {
     approved: true as const,
@@ -724,6 +687,7 @@ test("implementation review receives approved plan without stale plan thread IDs
         evidence: "Focused test passed.",
       },
     ],
+    checks: [],
     concernUpdates: [
       {
         concernId: "thread-1",
@@ -770,6 +734,7 @@ test("required implementation checks must pass for the current patch", () => {
         evidence: "The patch changes the configured language handling.",
       },
     ],
+    checks: [],
     concernUpdates: [],
     newConcerns: [],
   };
@@ -983,245 +948,47 @@ test("paired continuation acknowledges an existing source patch", () => {
   );
 });
 
-test("paired investigation cannot approve without reviewer-run cited evidence", () => {
-  const missingEvidence = pairedReviewApprovalEvidenceRequirement(
-    "approve",
-    [],
-    [],
-  );
-  assert.equal(missingEvidence.length, 1);
-  assert.match(missingEvidence[0], /decisive check run by the reviewer/);
-
-  assert.deepEqual(
-    pairedReviewApprovalEvidenceRequirement(
-      "approve",
-      [{ claim: "Build resolves the reported image", command: "yarn build" }],
-      [{ command: "yarn build", output: "Build passed" }],
-    ),
-    [],
-  );
-  assert.deepEqual(
-    pairedReviewApprovalEvidenceRequirement("request-changes", [], []),
-    [],
-  );
-
-  const followUp = pairedReviewEvidenceFollowUp(
-    "Build resolution is unverified.",
-  );
-  assert.match(followUp, /approval was not accepted/);
-  assert.match(followUp, /smallest decisive check/);
-  assert.match(followUp, /focused existing test/);
-  assert.match(followUp, /exact command and observed result/);
-});
-
-test("verified requested checks are cleared while unverified experiments return to review", () => {
-  const checks = [
-    { action: "Run the focused test", observationToRecord: "Test output" },
-    {
-      action: "Inspect integration result",
-      observationToRecord: "Build output",
-    },
-  ];
-  const unresolved = requestedChecksNeedingReview(checks, [
-    { supported: true, verdict: "supported" },
-    {
-      supported: false,
-      verdict: "unverifiable",
-      concern: "No integration output was recorded.",
-    },
-  ]);
-  assert.deepEqual(unresolved, [
-    {
-      check: checks[1],
-      verdict: "unverifiable",
-      concern: "No integration output was recorded.",
-    },
-  ]);
-  assert.equal(requestedChecksNeedingReview(checks, []).length, checks.length);
-});
-
-test("paired review sends the task once, then only the latest implementer output", () => {
-  const firstRound = pairedReviewMessages(
-    "Original task: stable report",
-    "Plan from round one",
-  );
-  const nextRound = pairedReviewMessages(
-    undefined,
-    "Revised plan from round two",
-  );
-
-  assert.equal(firstRound.length, 2);
-  assert.equal(firstRound[0].content, "Original task: stable report");
-  assert.deepEqual(nextRound, [
-    { role: "user", content: "Revised plan from round two" },
-  ]);
-});
-
-test("planning review requested checks contain no command field", () => {
-  const review = {
-    status: "request-changes",
-    reportedOutcome: "unresolved",
-    summary: "The reported path is not isolated yet.",
-    findings: [],
-    requestedChecks: [
-      {
-        action: "Run a focused test covering the markdown image rewrite.",
-        observationToRecord:
-          "The test output showing whether the reported path is rewritten.",
-      },
-    ],
-    evidence: [],
-  };
-  assert.equal(investigationReviewSchema.safeParse(review).success, true);
-  assert.equal(
-    investigationReviewSchema.safeParse({
-      ...review,
-      requestedChecks: [
-        {
-          action: "Run a focused test covering the markdown image rewrite.",
-          command: "yarn test --runInBand",
-          observationToRecord:
-            "The test output showing whether the reported path is rewritten.",
-        },
-      ],
-    }).success,
-    false,
-  );
-});
-
-test("optional review arrays stay optional in model schemas and normalize to empty", () => {
-  const investigation = {
-    status: "approve" as const,
-    reportedOutcome: "established" as const,
-    summary: "The plan is supported.",
-    findings: [],
-  };
-  const parsedInvestigation = investigationReviewSchema.parse(investigation);
-  const normalizedInvestigation =
-    normalizeInvestigationReview(parsedInvestigation);
-  const [{ schema: investigationResponseSchema }] = toolStrategy(
-    investigationReviewSchema,
-  ) as unknown as Array<{ schema: { required?: string[] } }>;
-  assert.deepEqual(normalizedInvestigation.requestedChecks, []);
-  assert.deepEqual(normalizedInvestigation.evidence, []);
-  assert.equal(
-    investigationResponseSchema.required?.includes("requestedChecks"),
-    false,
-  );
-  assert.equal(
-    investigationResponseSchema.required?.includes("evidence"),
-    false,
-  );
-
-  const patchReview = {
-    status: "pass" as const,
-    summary: "The patch addresses the issue.",
-    findings: [],
-    behaviorChecks: [
-      {
-        quote: "uppercase PHP fails",
-        status: "verified" as const,
-        evidence: "The focused test passes.",
-      },
-    ],
-    carryoverFindings: [],
-    evidence: [],
-  };
-  const parsedPatchReview = pairedPatchReviewSchema.parse(patchReview);
-  const [{ schema: patchResponseSchema }] = toolStrategy(
-    pairedPatchReviewSchema,
-  ) as unknown as Array<{ schema: { required?: string[] } }>;
-  assert.deepEqual(parsedPatchReview.evidence, []);
-  assert.equal(patchResponseSchema.required?.includes("evidence"), true);
-});
-
-test("an unresolved reported outcome blocks reviewer approval", () => {
-  assert.deepEqual(pairedReviewOutcomeRequirement("approve", "unresolved"), [
-    "Approval is blocked because the reported behavior remains unresolved. Continue with the next decisive check.",
-  ]);
-  assert.deepEqual(
-    pairedReviewOutcomeRequirement("approve", "established"),
-    [],
-  );
-  assert.deepEqual(
-    pairedReviewOutcomeRequirement("request-changes", "unresolved"),
-    [],
-  );
-});
-
-test("investigation continuation carries compact handoff and bounded recent evidence", () => {
-  const previous = {
-    summary: "The URL rewrite is a likely cause.",
-    reportedExamples: [
-      {
-        source: "docs page",
-        literal: "image URL",
-        expected: "image resolves",
-        reportedActual: "image missing",
-        outcome: "reproduced" as const,
-        observation: "The path is rewritten during Markdown processing.",
-      },
-    ],
-    hypotheses: [
-      {
-        explanation: "Markdown linkification rewrites a URL prefix.",
-        evidenceFor: ["The resolver accepts the prefix."],
-        evidenceAgainst: [],
-        distinguishingCheck: "Run the focused transformation test.",
-      },
-      {
-        explanation: "Static path resolution changes the suffix.",
-        evidenceFor: [],
-        evidenceAgainst: [
-          "The resolver output already contains the changed path.",
-        ],
-        distinguishingCheck: "Inspect the transformed URL.",
-      },
-    ],
-    implementationPlan: {
-      reportedBehavior: "The adjacent image fails to resolve.",
-      codePath: "Markdown linkification to image transform.",
-      pathEvidence: "The output URL contains the rewritten prefix.",
-      proposedChange: "Constrain the Markdown link match.",
-      validation: "Run focused linkification tests.",
-      validationChecks: [
-        {
-          id: "check-1",
-          command: "yarn test linkification",
-          expectedOutcome: "The reported image URL remains unchanged.",
-          reportedBehaviorQuotes: ["image URL"],
-        },
-      ],
-      edgeCases: ["Existing Markdown links"],
-    },
-  };
-  const continuation = pairedInvestigationContinuation(
-    "Original issue text",
-    previous,
-    "Run the focused test and report its output.",
-    [{ command: "cat useful.log", output: "x".repeat(5_000) }],
-  );
-  assert.match(continuation, /Original issue text/);
-  assert.match(continuation, /Latest structured investigation/);
-  assert.match(continuation, /Run the focused test/);
-  assert.match(continuation, /characters omitted/);
-  assert.ok(continuation.length < 10_000);
-});
-
 test("implementation step limit allows a model and tool cycle plus final response", () => {
   assert.equal(implementationRecursionLimit(60), 121);
 });
 
-test("investigation limit leaves room to return a handoff at its command cap", () => {
+test("investigation command cap is bounded by the step limit", () => {
   assert.equal(investigationCommandCap(60), 50);
   assert.equal(investigationCommandCap(24), 24);
+});
+
+test("hypothesis schema requires the configured investigation count", () => {
+  const hypothesis = {
+    id: "A",
+    explanation: "A plausible cause.",
+    prediction: "It predicts the reported behavior.",
+    distinguishingCheck: "Run the focused check.",
+  };
+  const two = hypothesesSchemaFor(2);
   assert.equal(
-    investigationRecursionLimit(investigationCommandCap(60), 0),
-    103,
+    two.safeParse({
+      hypotheses: [hypothesis, { ...hypothesis, id: "B" }],
+    }).success,
+    true,
   );
-  assert.equal(investigationRecursionLimit(60, 0), 123);
-  assert.equal(investigationRecursionLimit(60, 59), 5);
-  assert.equal(investigationRecursionLimit(60, 60), 3);
+  assert.equal(two.safeParse({ hypotheses: [hypothesis] }).success, false);
+  assert.equal(
+    hypothesesSchemaFor(1).safeParse({ hypotheses: [hypothesis] }).success,
+    true,
+  );
+  const constrained = hypothesesSchemaFor(2, ["A", "B"]);
+  assert.equal(
+    constrained.safeParse({
+      hypotheses: [hypothesis, { ...hypothesis, id: "B" }],
+    }).success,
+    true,
+  );
+  assert.equal(
+    constrained.safeParse({
+      hypotheses: [hypothesis, { ...hypothesis, id: "H1" }],
+    }).success,
+    false,
+  );
 });
 
 test("result schema supports inconclusive and respects disabled clarification", () => {
@@ -1405,6 +1172,56 @@ test("a final assistant JSON message recovers when structured output is absent",
     ),
     { status: "done" },
   );
+});
+
+test("a text-only assistant response is treated as a recoverable malformed call", () => {
+  assert.throws(
+    () =>
+      parseAgentResponse(
+        undefined,
+        [
+          {
+            type: "ai",
+            content: "Addressed the reviewer's finding.",
+            tool_calls: [],
+          },
+        ],
+        resultSchema,
+        4096,
+      ),
+    /malformed or truncated tool call/,
+  );
+});
+
+test("text-only structured output retries once", async () => {
+  let calls = 0;
+  const result = await invokeWithMalformedToolCallRecovery(
+    async () => {
+      calls++;
+      return {
+        structuredResponse: calls === 1 ? undefined : { status: "done" },
+        messages:
+          calls === 1
+            ? [
+                {
+                  type: "ai",
+                  content: "Addressed the reviewer's finding.",
+                  tool_calls: [],
+                },
+              ]
+            : [],
+      };
+    },
+    (out) =>
+      parseAgentResponse(
+        out.structuredResponse,
+        out.messages,
+        resultSchema,
+        4096,
+      ),
+  );
+  assert.deepEqual(result, { status: "done" });
+  assert.equal(calls, 2);
 });
 
 test("tool output is never accepted as a structured agent result", () => {

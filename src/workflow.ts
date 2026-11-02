@@ -400,9 +400,15 @@ export function workflow(
           currentJob.reviewerModel = config.reviewer.model ?? config.model;
           if (result.status === "done") {
             currentJob.reviewedRevision = currentJob.revision;
-            currentJob.reviewStatus = "pass";
-            currentJob.reviewSummary =
-              "Paired investigation and patch reviews approved.";
+            if (result.implementationReviewSkipped) {
+              currentJob.reviewStatus = "skipped";
+              currentJob.reviewSummary =
+                "Paired review was skipped after a reviewer failure or step limit; the implementation was published without approval.";
+            } else {
+              currentJob.reviewStatus = "pass";
+              currentJob.reviewSummary =
+                "Paired planning and patch reviews approved.";
+            }
           } else if (result.status === "inconclusive") {
             currentJob.reviewStatus = "findings";
             currentJob.reviewSummary =
@@ -431,6 +437,7 @@ export function workflow(
             status: "pass",
             summary: currentJob.reviewSummary,
             findings: [],
+            checks: [],
           } satisfies ReviewResult,
         };
       }
@@ -491,6 +498,7 @@ export function workflow(
             status: "pass",
             summary: currentJob.reviewSummary,
             findings: [],
+            checks: [],
           } satisfies ReviewResult,
         };
       }

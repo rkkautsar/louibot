@@ -1,6 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { z } from "zod";
+const reasoningEffortSchema = z.enum([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+]);
 export const schema = z
   .object({
     repository: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
@@ -25,9 +33,7 @@ export const schema = z
         tokenLimitParameter: z
           .enum(["max_tokens", "max_completion_tokens"])
           .optional(),
-        reasoningEffort: z
-          .enum(["none", "minimal", "low", "medium", "high", "xhigh"])
-          .optional(),
+        reasoningEffort: reasoningEffortSchema.optional(),
       })
       .optional(),
     github: z
@@ -62,8 +68,25 @@ export const schema = z
         pairedWorkflow: z
           .object({
             enabled: z.boolean().default(false),
+            investigatorReasoningEffort: reasoningEffortSchema.optional(),
+            implementerReasoningEffort: reasoningEffortSchema.optional(),
+            plannerModel: z
+              .string()
+              .regex(/^(openai|anthropic|openai-compatible)\/.+/)
+              .optional(),
+            plannerApiFormat: z
+              .enum(["chat-completions", "responses"])
+              .optional(),
+            plannerInputUsdPerMillion: z.number().nonnegative().optional(),
+            plannerOutputUsdPerMillion: z.number().nonnegative().optional(),
+            parallelInvestigations: z.number().int().min(1).max(4).default(2),
             maxInvestigationRounds: z.number().int().min(1).max(8).default(8),
-            maxImplementationReviews: z.number().int().min(1).max(4).default(4),
+            maxImplementationReviews: z
+              .number()
+              .int()
+              .min(1)
+              .max(10)
+              .default(5),
             evidenceJudge: z
               .object({
                 accountIdEnv: z
@@ -86,8 +109,9 @@ export const schema = z
           })
           .default({
             enabled: false,
+            parallelInvestigations: 2,
             maxInvestigationRounds: 8,
-            maxImplementationReviews: 4,
+            maxImplementationReviews: 5,
             evidenceJudge: {
               accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
               apiTokenEnv: "CLOUDFLARE_API_TOKEN",
@@ -107,8 +131,9 @@ export const schema = z
         enabled: false,
         pairedWorkflow: {
           enabled: false,
+          parallelInvestigations: 2,
           maxInvestigationRounds: 8,
-          maxImplementationReviews: 4,
+          maxImplementationReviews: 5,
           evidenceJudge: {
             accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
             apiTokenEnv: "CLOUDFLARE_API_TOKEN",
@@ -152,6 +177,41 @@ export const schema = z
         message: "Custom endpoints require the openai-compatible provider",
       });
     const reviewerModel = config.reviewer.model ?? config.model;
+    if (
+      config.reviewer.pairedWorkflow.plannerModel?.startsWith(
+        "openai-compatible/",
+      ) &&
+      !config.endpoint
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["reviewer", "pairedWorkflow", "plannerModel"],
+        message:
+          "The planner model uses openai-compatible and requires endpoint configuration",
+      });
+    const plannerModel =
+      config.reviewer.pairedWorkflow.plannerModel ?? config.model;
+    if (
+      config.reviewer.pairedWorkflow.plannerApiFormat &&
+      !plannerModel.startsWith("openai-compatible/")
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["reviewer", "pairedWorkflow", "plannerApiFormat"],
+        message:
+          "plannerApiFormat only applies to openai-compatible planner models",
+      });
+    if (
+      (config.reviewer.pairedWorkflow.investigatorReasoningEffort ||
+        config.reviewer.pairedWorkflow.implementerReasoningEffort) &&
+      !config.model.startsWith("openai-compatible/")
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["reviewer", "pairedWorkflow", "investigatorReasoningEffort"],
+        message:
+          "Reasoning effort overrides require an openai-compatible model",
+      });
     const reviewerHasInputPrice =
       config.reviewer.inputUsdPerMillion !== undefined;
     const reviewerHasOutputPrice =
