@@ -543,6 +543,11 @@ export async function runBenchmarkCase(
       evaluatorSetupError,
       evaluationSeconds,
       tokenUsage,
+      roleUsage: adapterResult.roleUsage ?? null,
+      cacheReadTokens:
+        typeof adapterResult.cacheReadTokens === "number"
+          ? adapterResult.cacheReadTokens
+          : null,
       costUsd,
       tokenBudget: process.env.BENCHMARK_TOKEN_BUDGET
         ? Number(process.env.BENCHMARK_TOKEN_BUDGET)

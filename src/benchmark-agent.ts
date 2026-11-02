@@ -37,20 +37,27 @@ async function main() {
     output = 0,
     tools = 0,
     calls = 0,
-    usageCalls = 0,
-    implementerInput = 0,
-    implementerOutput = 0,
-    reviewerInput = 0,
-    reviewerOutput = 0;
+    usageCalls = 0;
+  const roleUsage: Record<
+    string,
+    { input: number; output: number; cacheRead: number; calls: number }
+  > = {};
   const log = store.log.bind(store);
   store.log = (issue, event, data) => {
-    if (event === "implementer.model.start" || event === "reviewer.model.start")
-      calls++;
-    if (event === "implementer.model.end" || event === "reviewer.model.end") {
-      const role = event.startsWith("reviewer.") ? "reviewer" : "implementer";
+    const modelEvent =
+      /^(planner|synthesis|investigator|implementer|reviewer)\.model\.(start|end)$/.exec(
+        event,
+      );
+    if (modelEvent?.[2] === "start") calls++;
+    if (modelEvent?.[2] === "end") {
+      const role = modelEvent[1]!;
       const envelope = data as {
         messages?: Array<{
-          usage_metadata?: { input_tokens: number; output_tokens: number };
+          usage_metadata?: {
+            input_tokens: number;
+            output_tokens: number;
+            input_token_details?: { cache_read?: number };
+          };
           tool_calls?: unknown[];
         }>;
       };
@@ -66,15 +73,16 @@ async function main() {
           Number.isFinite(usage.input_tokens) &&
           Number.isFinite(usage.output_tokens)
         ) {
+          const cacheRead = Number(usage.input_token_details?.cache_read ?? 0);
           input += usage.input_tokens;
           output += usage.output_tokens;
-          if (role === "reviewer") {
-            reviewerInput += usage.input_tokens;
-            reviewerOutput += usage.output_tokens;
-          } else {
-            implementerInput += usage.input_tokens;
-            implementerOutput += usage.output_tokens;
-          }
+          roleUsage[role] ??= { input: 0, output: 0, cacheRead: 0, calls: 0 };
+          roleUsage[role].input += usage.input_tokens;
+          roleUsage[role].output += usage.output_tokens;
+          roleUsage[role].cacheRead += Number.isFinite(cacheRead)
+            ? cacheRead
+            : 0;
+          roleUsage[role].calls += 1;
           found = true;
         }
       }
@@ -204,17 +212,46 @@ async function main() {
           .digest("hex"),
         inputTokens: complete ? input : null,
         outputTokens: complete ? output : null,
+        cacheReadTokens: complete
+          ? Object.values(roleUsage).reduce(
+              (total, usage) => total + usage.cacheRead,
+              0,
+            )
+          : null,
+        roleUsage: complete ? roleUsage : null,
         toolCalls: tools,
         costUsd: complete
-          ? (implementerInput * configuration.agent.inputUsdPerMillion +
-              implementerOutput * configuration.agent.outputUsdPerMillion +
-              reviewerInput *
-                (configuration.reviewer.inputUsdPerMillion ??
-                  configuration.agent.inputUsdPerMillion) +
-              reviewerOutput *
-                (configuration.reviewer.outputUsdPerMillion ??
-                  configuration.agent.outputUsdPerMillion)) /
-            1e6
+          ? Object.entries(roleUsage).reduce((total, [role, usage]) => {
+              const rates =
+                role === "reviewer"
+                  ? {
+                      input:
+                        configuration.reviewer.inputUsdPerMillion ??
+                        configuration.agent.inputUsdPerMillion,
+                      output:
+                        configuration.reviewer.outputUsdPerMillion ??
+                        configuration.agent.outputUsdPerMillion,
+                    }
+                  : role === "planner" || role === "synthesis"
+                    ? {
+                        input:
+                          configuration.reviewer.pairedWorkflow
+                            .plannerInputUsdPerMillion ??
+                          configuration.agent.inputUsdPerMillion,
+                        output:
+                          configuration.reviewer.pairedWorkflow
+                            .plannerOutputUsdPerMillion ??
+                          configuration.agent.outputUsdPerMillion,
+                      }
+                    : {
+                        input: configuration.agent.inputUsdPerMillion,
+                        output: configuration.agent.outputUsdPerMillion,
+                      };
+              return (
+                total +
+                (usage.input * rates.input + usage.output * rates.output) / 1e6
+              );
+            }, 0)
           : null,
         costBudgetUsd: costBudget,
         budgetEnforced: false,

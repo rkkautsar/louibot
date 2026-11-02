@@ -33,6 +33,7 @@ import {
   mergePlanningEvidenceLedger,
   normalizePlanningSubmission,
   normalizeReviewResult,
+  normalizeWorkflowPlan,
   planningSubmissionSchema,
 } from "../src/agent.js";
 
@@ -955,6 +956,39 @@ test("implementation step limit allows a model and tool cycle plus final respons
 test("investigation command cap is bounded by the step limit", () => {
   assert.equal(investigationCommandCap(60), 50);
   assert.equal(investigationCommandCap(24), 24);
+});
+
+test("synthesis plan accepts stringified arrays from providers", () => {
+  const normalized = normalizeWorkflowPlan(
+    {
+      summary: "s",
+      rootCause: "r",
+      plan: JSON.stringify([
+        { target: "a.ts", change: "b", expectedResult: "c" },
+      ]),
+      validation: "v",
+      uncertainties: JSON.stringify(["u"]),
+    },
+    4096,
+  );
+  assert.deepEqual(normalized.plan, [
+    { target: "a.ts", change: "b", expectedResult: "c" },
+  ]);
+  assert.deepEqual(normalized.uncertainties, ["u"]);
+  assert.throws(
+    () =>
+      normalizeWorkflowPlan(
+        {
+          summary: "s",
+          rootCause: "r",
+          plan: "not json",
+          validation: "v",
+          uncertainties: undefined,
+        },
+        4096,
+      ),
+    /malformed or truncated tool call/,
+  );
 });
 
 test("hypothesis schema requires the configured investigation count", () => {

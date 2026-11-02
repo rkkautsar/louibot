@@ -306,22 +306,56 @@ const investigationFindingSchema = z.object({
   unresolvedBoundary: z.string().max(600),
 });
 
+const workflowPlanStepSchema = z.object({
+  target: z.string().min(1).max(400),
+  change: z.string().min(1).max(1_200),
+  expectedResult: z.string().min(1).max(800),
+});
+const workflowPlanStepsSchema = z.array(workflowPlanStepSchema).min(1).max(8);
 const workflowPlanSchema = z.object({
   summary: z.string().min(1).max(1_200),
-  rootCause: z.string().min(1).max(1_200),
-  plan: z
-    .array(
-      z.object({
-        target: z.string().min(1).max(400),
-        change: z.string().min(1).max(1_200),
-        expectedResult: z.string().min(1).max(800),
-      }),
-    )
-    .min(1)
-    .max(8),
+  rootCause: z.string().min(1).max(2_000),
+  plan: z.union([workflowPlanStepsSchema, z.string()]),
   validation: z.string().min(1).max(1_200),
-  uncertainties: z.array(z.string().min(1).max(500)).max(8),
+  uncertainties: z
+    .union([z.array(z.string().min(1).max(500)).max(8), z.string()])
+    .optional(),
 });
+
+export type WorkflowPlan = {
+  summary: string;
+  rootCause: string;
+  plan: Array<z.infer<typeof workflowPlanStepSchema>>;
+  validation: string;
+  uncertainties: string[];
+};
+
+function parseStringifiedJson(value: unknown): unknown {
+  let current = value;
+  for (let depth = 0; depth < 2 && typeof current === "string"; depth++)
+    current = JSON.parse(current);
+  return current;
+}
+
+export function normalizeWorkflowPlan(
+  raw: z.infer<typeof workflowPlanSchema>,
+  maxOutputTokens: number,
+): WorkflowPlan {
+  try {
+    return {
+      ...raw,
+      plan: workflowPlanStepsSchema.parse(parseStringifiedJson(raw.plan)),
+      uncertainties: raw.uncertainties
+        ? z
+            .array(z.string().min(1).max(500))
+            .max(8)
+            .parse(parseStringifiedJson(raw.uncertainties))
+        : [],
+    };
+  } catch {
+    throw malformedToolCallError(maxOutputTokens);
+  }
+}
 
 const pairedReviewShellCommand = z.string().max(2_000);
 const MAX_MALFORMED_RECOVERY_CONTEXT = 8_000;
@@ -468,7 +502,9 @@ export function implementationRecursionLimit(maxSteps: number): number {
 
 function reportedTokenUsage(
   response: unknown,
-): { inputTokens: number; outputTokens: number } | undefined {
+):
+  | { inputTokens: number; outputTokens: number; cacheReadTokens?: number }
+  | undefined {
   if (!response || typeof response !== "object") return undefined;
   const usage = (response as { usage_metadata?: unknown }).usage_metadata;
   if (!usage || typeof usage !== "object") return undefined;
@@ -485,7 +521,16 @@ function reportedTokenUsage(
     outputTokens < 0
   )
     return undefined;
-  return { inputTokens, outputTokens };
+  const cacheRead = (
+    usage as { input_token_details?: { cache_read?: unknown } }
+  ).input_token_details?.cache_read;
+  return {
+    inputTokens,
+    outputTokens,
+    ...(typeof cacheRead === "number" && Number.isFinite(cacheRead)
+      ? { cacheReadTokens: cacheRead }
+      : {}),
+  };
 }
 
 function malformedToolCallError(
@@ -807,7 +852,7 @@ function budgetMiddleware(
   job: Job,
   store: Store,
   signal: AbortSignal,
-  role: "implementer" | "reviewer",
+  role: "planner" | "synthesis" | "investigator" | "implementer" | "reviewer",
   rates: { input: number; output: number },
 ) {
   return createMiddleware({
@@ -2104,7 +2149,7 @@ export async function code(
       | {
           hypotheses: Array<z.infer<typeof hypothesisSchema>>;
           investigations: Array<z.infer<typeof investigationFindingSchema>>;
-          synthesis: z.infer<typeof workflowPlanSchema>;
+          synthesis: WorkflowPlan;
         }
       | undefined;
 
@@ -2174,7 +2219,7 @@ export async function code(
         ),
         tools: [],
         middleware: [
-          budgetMiddleware(config, job, store, signal, "implementer", {
+          budgetMiddleware(config, job, store, signal, "planner", {
             input:
               config.reviewer.pairedWorkflow.plannerInputUsdPerMillion ??
               config.agent.inputUsdPerMillion,
@@ -2257,7 +2302,7 @@ export async function code(
               ),
             ],
             middleware: [
-              budgetMiddleware(config, job, store, signal, "implementer", {
+              budgetMiddleware(config, job, store, signal, "investigator", {
                 input: config.agent.inputUsdPerMillion,
                 output: config.agent.outputUsdPerMillion,
               }),
@@ -2334,7 +2379,7 @@ export async function code(
         responseFormat: toolStrategy(workflowPlanSchema),
         tools: [],
         middleware: [
-          budgetMiddleware(config, job, store, signal, "implementer", {
+          budgetMiddleware(config, job, store, signal, "synthesis", {
             input:
               config.reviewer.pairedWorkflow.plannerInputUsdPerMillion ??
               config.agent.inputUsdPerMillion,
@@ -2367,10 +2412,13 @@ export async function code(
                 },
               ),
             (out) =>
-              parseAgentResponse(
-                out.structuredResponse,
-                out.messages,
-                workflowPlanSchema,
+              normalizeWorkflowPlan(
+                parseAgentResponse(
+                  out.structuredResponse,
+                  out.messages,
+                  workflowPlanSchema,
+                  config.agent.maxOutputTokens,
+                ),
                 config.agent.maxOutputTokens,
               ),
           ),
