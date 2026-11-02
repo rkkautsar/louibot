@@ -170,10 +170,10 @@ We ran the same four frozen Docusaurus tasks (8927, 9183, 10130, 10309) through 
 | 8927      | failed · 18.4 min · $0.29  | failed · 5.4 min · $0.09          | step limit · 9.5 min · $0.20 |
 | 9183      | passed · 17.0 min · $0.47  | failed · 4.5 min · $0.09          | failed · 5.7 min · $0.11     |
 | 10130     | passed · 17.2 min · $0.30  | failed · 4.5 min · $0.09          | failed · 6.7 min · $0.13     |
-| 10309     | passed · 18.6 min · $0.32  | failed · 4.4 min · $0.08          | failed · 6.5 min · $0.11     |
-| **Total** | **3/4 · 71.2 min · $1.39** | **0/4 · 18.8 min · $0.35**        | **0/4 · 28.3 min · $0.55**   |
+| 10309     | passed · 19.4 min · $0.36  | failed · 4.4 min · $0.08          | failed · 6.5 min · $0.11     |
+| **Total** | **3/4 · 72.0 min · $1.42** | **0/4 · 18.8 min · $0.35**        | **0/4 · 28.3 min · $0.55**   |
 
-Times are wall-clock per case from sandbox setup through grading. Costs are list-price estimates from input and output token counts at DeepSeek V4.1 Flash ($0.15/M input, $0.60/M output) and GLM 5.3 Flash ($0.15/M input, $0.50/M output), excluding cache-read discounts; billed amounts are lower on long agent loops. Louibot's aggregate tokens are priced at the DeepSeek rates; its planner GLM output is slightly cheaper.
+Times are wall-clock per case from sandbox setup through grading. Costs are list-price estimates from input and output token counts at DeepSeek V4.1 Flash ($0.15/M input, $0.60/M output) and GLM 5.3 Flash ($0.15/M input, $0.50/M output), excluding cache-read discounts; billed amounts are lower on long agent loops. Louibot's aggregate tokens are priced at the DeepSeek rates; its planner GLM output is slightly cheaper. In the latest instrumented 10309 run, 1.80M of 2.11M input tokens were cache reads, so the billed cost is roughly $0.09; that run also cut synthesis retries from nine model calls to two.
 
 Louibot used GLM 5.3 Flash for planning (chat completions, high effort), DeepSeek V4.1 Flash for the two investigators and the implementer (low effort), DeepSeek V4.1 Flash for the reviewer (high effort), and up to five review rounds. Mini-SWE-Agent used its generic SWE-bench prompt with a 60-step and $1-per-case cap; DeepSeek and GLM ran at high effort, with GLM retrying only tasks DeepSeek did not pass. Mini-SWE submitted patches on every completed case but missed the hidden edge cases on all four; 8927 also exceeded its step cap under GLM.
 
