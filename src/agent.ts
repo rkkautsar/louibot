@@ -3352,3 +3352,93 @@ export function normalizeReviewResult(review: ReviewResult): ReviewResult {
     };
   return normalized;
 }
+
+export async function resumeFinalReview(args: {
+  config: Config;
+  job: Job;
+  store: Store;
+  signal: AbortSignal;
+  reviewInput: string;
+}): Promise<z.infer<typeof reviewSchema>> {
+  const reviewerModel = args.config.reviewer.model ?? args.config.model;
+  const reviewerInputRate =
+    args.config.reviewer.inputUsdPerMillion ??
+    args.config.agent.inputUsdPerMillion;
+  const reviewerOutputRate =
+    args.config.reviewer.outputUsdPerMillion ??
+    args.config.agent.outputUsdPerMillion;
+  const discovery = await discoverSandboxImage(
+    args.job.worktree,
+    args.config.sandbox.image,
+  );
+  const sandbox = new Sandbox(
+    discovery.image,
+    args.job.worktree,
+    args.config.sandbox.commandTimeoutSeconds,
+    (...values: unknown[]) => args.store.log(args.job.issue, "shell", values),
+    args.config.sandbox.network,
+    args.config.repository,
+    true,
+  );
+  try {
+    await sandbox.start();
+    const reviewer = createAgent({
+      model: createModel(
+        args.config,
+        reviewerModel,
+        args.config.agent.maxOutputTokens,
+      ),
+      systemPrompt: patchReviewPrompt,
+      responseFormat: toolStrategy(reviewSchema),
+      tools: [
+        tool(
+          async ({ command }: { command: string }) =>
+            sandbox.explorationShell(command, args.signal),
+          {
+            name: "shell",
+            description:
+              "Inspect the shared workspace read-only with short, targeted commands and bounded output.",
+            schema: z.object({ command: pairedReviewShellCommand }),
+          },
+        ),
+      ],
+      middleware: [
+        budgetMiddleware(
+          args.config,
+          args.job,
+          args.store,
+          args.signal,
+          "reviewer",
+          {
+            input: reviewerInputRate,
+            output: reviewerOutputRate,
+          },
+        ),
+      ],
+      checkpointer: SqliteSaver.fromConnString(
+        `${args.store.dir}/workflow-review-resume.sqlite`,
+      ),
+    });
+    const output = await reviewer.invoke(
+      { messages: [{ role: "user", content: args.reviewInput }] },
+      {
+        configurable: {
+          thread_id: `issue-${args.job.issue}-attempt-${args.job.attempt ?? 1}-review-resume-${randomUUID().slice(0, 8)}`,
+        },
+        recursionLimit: implementationRecursionLimit(
+          args.config.reviewer.maxSteps,
+        ),
+        signal: args.signal,
+      },
+    );
+    return parseAgentResponse(
+      output.structuredResponse,
+      output.messages,
+      reviewSchema,
+      args.config.agent.maxOutputTokens,
+    );
+  } finally {
+    await sandbox.finish().catch(() => {});
+    await sandbox.dispose().catch(() => {});
+  }
+}
