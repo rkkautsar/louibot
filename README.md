@@ -163,19 +163,19 @@ The separate [benchmark harness](benchmarks/README.md) runs isolated headless ca
 
 ### Docusaurus four-case comparison
 
-Louibot used `deepseek/deepseek-v4.1-flash`; Mini-SWE-Agent used `gpt-6-luna`. Different models, so this is a workflow comparison, not a model-quality comparison.
+Both Louibot and Mini-SWE-Agent used `deepseek/deepseek-v4.1-flash` with high reasoning. This is a workflow comparison, not a model-quality comparison.
 
 | Task  | Louibot | Louibot solve time | Louibot cost | Mini-SWE | Mini-SWE solve time | Mini-SWE cost |
 | ----- | ------- | ------------------ | ------------ | -------- | ------------------- | ------------- |
-| 9183  | fail    | 58m46s             | $0.323       | fail     | 3m17s               | $0.044        |
-| 10309 | pass    | 33m52s             | $0.247       | fail     | 3m30s               | $0.038        |
-| 10130 | pass    | 29m36s             | $0.205       | pass     | 3m26s               | $0.044        |
-| 8927  | fail    | no completed run   | —            | fail     | 9m37s               | $0.086        |
+| 9183  | fail    | 58m46s             | $0.323       | pass     | 5m22s               | $0.160        |
+| 10309 | pass    | 33m52s             | $0.247       | pass     | 4m10s               | $0.090        |
+| 10130 | pass    | 29m36s             | $0.205       | pass     | 4m49s               | $0.109        |
+| 8927  | fail    | 14m24s             | $0.386       | fail     | 5m03s               | $0.146        |
 
 |                                 | Louibot | Mini-SWE |
 | ------------------------------- | ------- | -------- |
-| Solved                          | **2/4** | **1/4**  |
-| Mean solve time per solved task | 31m44s  | 3m26s    |
-| Mean cost per solved task       | $0.226  | $0.044   |
+| Solved                          | **2/4** | **3/4**  |
+| Mean solve time per solved task | 31m44s  | 4m47s    |
+| Mean cost per solved task       | $0.226  | $0.120   |
 
-Both solve-time columns run from environment setup through patch capture and exclude hidden-test grading.
+Both solve-time columns run from environment setup through patch capture and exclude hidden-test grading. The 8927 Louibot row is from the 2026-11-04 run; Mini-SWE rows are the 2026-11-04 high-reasoning run.
