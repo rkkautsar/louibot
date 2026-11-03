@@ -75,6 +75,29 @@ function normalizeResponsesEvent(event: unknown) {
   if ("item" in event) normalizeResponsesPayload({ output: [event.item] });
 }
 
+async function nextWithIdleTimeout<T>(
+  iterator: AsyncIterator<T>,
+  timeoutMs: number,
+): Promise<IteratorResult<T>> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      iterator.next(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(`Model stream produced no output for ${timeoutMs} ms`),
+            ),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function wrapResponsesStream(stream: unknown) {
   if (!stream || typeof stream !== "object") return stream;
   return new Proxy(stream, {
@@ -94,8 +117,12 @@ function wrapResponsesStream(stream: unknown) {
 }
 
 class GuardedChatOpenAIResponses extends ChatOpenAIResponses {
+  private readonly streamIdleTimeoutMs: number;
+
   constructor(fields: ConstructorParameters<typeof ChatOpenAIResponses>[0]) {
     super(fields);
+    this.streamIdleTimeoutMs =
+      typeof fields?.timeout === "number" ? fields.timeout : 300_000;
     // Some OpenAI-compatible providers omit empty annotation arrays, while
     // LangChain's Responses converter assumes the field is present. Wrap the
     // retry method so both streaming and non-streaming results are normalized
@@ -136,55 +163,64 @@ class GuardedChatOpenAIResponses extends ChatOpenAIResponses {
       }
     >();
 
-    for await (const chunk of super._streamResponseChunks(
-      messages,
-      options,
-      runManager,
-    )) {
-      const message = chunk.message as AIMessageChunk;
-      for (const toolCall of message.tool_call_chunks ?? []) {
-        const index = toolCall.index ?? 0;
-        const state = argumentState.get(index) ?? {
-          chars: 0,
-          whitespaceRun: 0,
-          tail: "",
-          nextCycleCheckAt:
-            MIN_REPEATED_ARGUMENT_UNIT * MIN_ARGUMENT_UNIT_REPETITIONS,
-        };
-        if (toolCall.name) state.name = toolCall.name;
+    const iterator = super
+      ._streamResponseChunks(messages, options, runManager)
+      [Symbol.asyncIterator]();
+    try {
+      while (true) {
+        const next = await nextWithIdleTimeout(
+          iterator,
+          this.streamIdleTimeoutMs,
+        );
+        if (next.done) break;
+        const chunk = next.value;
+        const message = chunk.message as AIMessageChunk;
+        for (const toolCall of message.tool_call_chunks ?? []) {
+          const index = toolCall.index ?? 0;
+          const state = argumentState.get(index) ?? {
+            chars: 0,
+            whitespaceRun: 0,
+            tail: "",
+            nextCycleCheckAt:
+              MIN_REPEATED_ARGUMENT_UNIT * MIN_ARGUMENT_UNIT_REPETITIONS,
+          };
+          if (toolCall.name) state.name = toolCall.name;
 
-        if (state.name === "shell" && typeof toolCall.args === "string") {
-          state.chars += toolCall.args.length;
-          for (const character of toolCall.args) {
-            state.whitespaceRun = /\s/.test(character)
-              ? state.whitespaceRun + 1
-              : 0;
-            if (
-              state.whitespaceRun >= MAX_CONSECUTIVE_SHELL_ARGUMENT_WHITESPACE
-            )
+          if (state.name === "shell" && typeof toolCall.args === "string") {
+            state.chars += toolCall.args.length;
+            for (const character of toolCall.args) {
+              state.whitespaceRun = /\s/.test(character)
+                ? state.whitespaceRun + 1
+                : 0;
+              if (
+                state.whitespaceRun >= MAX_CONSECUTIVE_SHELL_ARGUMENT_WHITESPACE
+              )
+                throw runawayToolCallError(
+                  `it contained at least ${MAX_CONSECUTIVE_SHELL_ARGUMENT_WHITESPACE} consecutive whitespace characters`,
+                );
+            }
+            if (state.chars > MAX_SHELL_TOOL_ARGUMENT_CHARS)
               throw runawayToolCallError(
-                `it contained at least ${MAX_CONSECUTIVE_SHELL_ARGUMENT_WHITESPACE} consecutive whitespace characters`,
+                `its arguments exceeded ${MAX_SHELL_TOOL_ARGUMENT_CHARS} characters`,
               );
-          }
-          if (state.chars > MAX_SHELL_TOOL_ARGUMENT_CHARS)
-            throw runawayToolCallError(
-              `its arguments exceeded ${MAX_SHELL_TOOL_ARGUMENT_CHARS} characters`,
+            state.tail = (state.tail + toolCall.args).slice(
+              -REPEATED_ARGUMENT_TAIL_CHARS,
             );
-          state.tail = (state.tail + toolCall.args).slice(
-            -REPEATED_ARGUMENT_TAIL_CHARS,
-          );
-          if (state.chars >= state.nextCycleCheckAt) {
-            state.nextCycleCheckAt =
-              state.chars + REPEATED_ARGUMENT_CHECK_INTERVAL;
-            if (hasRepeatedArgumentSuffix(state.tail))
-              throw runawayToolCallError(
-                "its arguments repeated the same short sequence at least 400 times",
-              );
+            if (state.chars >= state.nextCycleCheckAt) {
+              state.nextCycleCheckAt =
+                state.chars + REPEATED_ARGUMENT_CHECK_INTERVAL;
+              if (hasRepeatedArgumentSuffix(state.tail))
+                throw runawayToolCallError(
+                  "its arguments repeated the same short sequence at least 400 times",
+                );
+            }
           }
+          argumentState.set(index, state);
         }
-        argumentState.set(index, state);
+        yield chunk;
       }
-      yield chunk;
+    } finally {
+      void iterator.return?.(undefined);
     }
   }
 }

@@ -2636,6 +2636,7 @@ export async function code(
     let agentReportedTests = result.tests;
     let controllerValidationResults: ControllerValidationResult[] = [];
     let controllerValidationAttempt = 0;
+    let latestValidationDiff: string | undefined;
     const runControllerValidation = async () => {
       controllerValidationAttempt++;
       const validationDiff = workspaceBaseline
@@ -2649,21 +2650,19 @@ export async function code(
         options.approvedPlan?.plan.validationChecks ?? [],
         validationDiff,
       );
-      const diff = workspaceBaseline
-        ? await sandbox.diffFromBaseline(workspaceBaseline)
-        : "";
       const records = controllerValidationRecords({
         checks: validation.checks,
-        diff,
+        diff: validationDiff,
         attempt: controllerValidationAttempt,
       });
       controllerValidationResults.push(...records);
+      latestValidationDiff = validationDiff;
       store.log(job.issue, "validation.controller.results", {
         attempt: controllerValidationAttempt,
-        patchFingerprint: validationPatchFingerprint(diff),
+        patchFingerprint: validationPatchFingerprint(validationDiff),
         checks: records,
       });
-      return { ...validation, records };
+      return { ...validation, records, diff: validationDiff };
     };
     if (result.status === "done") {
       const validation = await runControllerValidation();
@@ -2738,9 +2737,11 @@ export async function code(
       let approved = false;
       let reviewedRounds = 0;
       let revision = 1;
-      let priorDiff = workspaceBaseline
-        ? await sandbox.diffFromBaseline(workspaceBaseline)
-        : "";
+      let priorDiff =
+        latestValidationDiff ??
+        (workspaceBaseline
+          ? await sandbox.diffFromBaseline(workspaceBaseline)
+          : "");
 
       for (let round = 1; round <= 2; round++) {
         const revisionId = `patch-${revision}`;

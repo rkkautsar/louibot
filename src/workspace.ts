@@ -23,6 +23,17 @@ const MAX_OUTPUT = 1024 * 1024;
 const MAX_GIT_PATHS = 64 * 1024 * 1024;
 export const MAX_SHELL_OUTPUT = 12_000;
 const HOST_COMMAND_TIMEOUT = 120_000;
+const snapshotIgnoredDirs: Record<string, true> = {
+  ".cache": true,
+  ".docusaurus": true,
+  ".git": true,
+  ".louibot": true,
+  ".next": true,
+  ".parcel-cache": true,
+  ".turbo": true,
+  coverage: true,
+  node_modules: true,
+};
 const SHELL_OUTPUT_MARKER =
   "\n\n[output truncated by Louibot; showing the beginning and end]\n\n";
 
@@ -35,6 +46,12 @@ export function truncateShellOutput(output: string): string {
   if (output.length <= MAX_SHELL_OUTPUT) return output;
   const { head, tail } = outputParts();
   return `${output.slice(0, head)}${SHELL_OUTPUT_MARKER}${output.slice(-tail)}`;
+}
+
+function snapshotPathExcluded(path: string): boolean {
+  const normalized = path.split(/[\\/]/).join("/");
+  if (secretPath(path)) return true;
+  return normalized.split("/").some((part) => snapshotIgnoredDirs[part]);
 }
 
 function shellQuote(value: string): string {
@@ -146,12 +163,7 @@ async function snapshotWorkspaceTree(
     );
     const paths = [
       ...new Set(listed.stdout.split("\0").filter(Boolean)),
-    ].filter(
-      (path) =>
-        path !== ".louibot" &&
-        !path.startsWith(".louibot/") &&
-        !secretPath(path),
-    );
+    ].filter((path) => !snapshotPathExcluded(path));
     if (paths.length) {
       await writeFile(
         pathspecPath,

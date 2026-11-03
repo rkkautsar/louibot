@@ -467,3 +467,36 @@ test("Responses API aborts a repeated short shell-argument cycle", async () => {
     else process.env.LOUIBOT_TEST_CREDENTIAL = old;
   }
 });
+
+test(
+  "Responses stream aborts when the provider stops sending output",
+  { timeout: 8_000 },
+  async () => {
+    const originalFetch = globalThis.fetch;
+    const old = process.env.LOUIBOT_TEST_CREDENTIAL;
+    process.env.LOUIBOT_TEST_CREDENTIAL = "responses-test-value";
+    globalThis.fetch = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start() {
+            // Keep the response body open without sending any events.
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    try {
+      const c = schema.parse({
+        ...base,
+        agent: { ...base.agent, modelRequestTimeoutSeconds: 1 },
+      });
+      await assert.rejects(
+        createModel(c, undefined, 16).invoke("Inspect files"),
+        /produced no output|timed out|aborted/i,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (old === undefined) delete process.env.LOUIBOT_TEST_CREDENTIAL;
+      else process.env.LOUIBOT_TEST_CREDENTIAL = old;
+    }
+  },
+);

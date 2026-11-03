@@ -61,6 +61,11 @@ test("baseline diffs include changed and untracked files without exposing secret
   await mkdir(stage);
   await writeFile(join(stage, "app.ts"), "export const value = 2;\n");
   await writeFile(join(stage, "new.ts"), "export const added = true;\n");
+  await mkdir(join(stage, "node_modules", "pkg"), { recursive: true });
+  await writeFile(
+    join(stage, "node_modules", "pkg", "index.js"),
+    "module.exports = 'dependency';\n",
+  );
   const gitDir = (
     await execFileAsync("git", ["rev-parse", "--absolute-git-dir"], {
       cwd: worktree,
@@ -73,6 +78,7 @@ test("baseline diffs include changed and untracked files without exposing secret
   assert.match(diff, /new\.ts/);
   assert.match(diff, /added = true/);
   assert.doesNotMatch(diff, /\.env|baseline-secret|current-secret/);
+  assert.doesNotMatch(diff, /node_modules|dependency/);
 });
 
 test("sandbox leaves /tmp uncapped and shares Playwright browsers in /cache", async () => {
