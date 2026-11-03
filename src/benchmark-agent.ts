@@ -3,7 +3,11 @@ import { readFile, writeFile, mkdtemp } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { parse } from "yaml";
 import { createHash } from "node:crypto";
-import { code, type ApprovedPlanHandoff } from "./agent.js";
+import {
+  approvedPlanHandoffSchema,
+  code,
+  type ApprovedPlanHandoff,
+} from "./agent.js";
 import { schema } from "./config.js";
 import { Store, type Job } from "./store.js";
 
@@ -113,11 +117,9 @@ async function main() {
   const handoffPath = process.env.BENCHMARK_IMPLEMENTATION_PLAN_FILE;
   let approvedPlan: ApprovedPlanHandoff | undefined;
   if (handoffPath) {
-    approvedPlan = JSON.parse(await readFile(handoffPath, "utf8"));
-    if (!approvedPlan?.approved || !approvedPlan.revisionId)
-      throw new Error(
-        "The implementation plan handoff is incomplete or unapproved",
-      );
+    approvedPlan = approvedPlanHandoffSchema.parse(
+      JSON.parse(await readFile(handoffPath, "utf8")),
+    );
   }
   store.save(job);
   const controller = new AbortController();

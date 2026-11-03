@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { approvedPlanHandoffSchema } from "./agent.js";
 import { diffWorkspaceFromBaseline } from "./workspace.js";
 
 type Case = {
@@ -198,7 +199,7 @@ export async function runBenchmarkCase(
       throw new Error("Approved plan task ID does not match benchmark case");
     if (report.behavior?.planningReviewApproved !== true)
       throw new Error("Approved plan report has no reviewer approval");
-    const handoff = {
+    const handoff = approvedPlanHandoffSchema.parse({
       approved: true,
       revisionId: report.behavior.planningRevisionId,
       plan: report.behavior.planning,
@@ -208,7 +209,7 @@ export async function runBenchmarkCase(
       threads: report.behavior.planningThreads ?? [],
       approvalSummary:
         report.behavior.summary ?? "Approved implementation plan",
-    };
+    });
     implementationPlanFile = join(dir, "approved-plan-handoff.json");
     await writeFile(implementationPlanFile, JSON.stringify(handoff));
   }
