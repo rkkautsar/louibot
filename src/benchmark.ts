@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { diffWorkspaceFromBaseline } from "./workspace.js";
 
 type Case = {
   id: string;
@@ -401,7 +403,13 @@ export async function runBenchmarkCase(
       throw new Error(
         patchResult.stderr || "Could not capture candidate patch",
       );
-    const patch = patchResult.stdout;
+    let patch = patchResult.stdout;
+    const stage = join(candidate, ".sandbox");
+    if (!patch.trim() && existsSync(stage)) {
+      const gitDir = await git(candidate, ["rev-parse", "--absolute-git-dir"]);
+      const baseTree = await git(repo, ["rev-parse", `${base}^{tree}`]);
+      patch = await diffWorkspaceFromBaseline(stage, baseTree, gitDir);
+    }
     await writeFile(join(dir, "candidate.patch"), patch);
     solveSeconds = Math.round((Date.now() - started) / 10) / 100;
     if (!planningOnlyRequested && value.evaluator.waitCommand) {
@@ -441,7 +449,7 @@ export async function runBenchmarkCase(
         : { code: 0, stdout: "", stderr: "" };
     const results = [];
     if (!planningOnlyRequested) evaluationStarted = Date.now();
-    if (!planningOnlyRequested && !agent.code && !apply.code)
+    if (!planningOnlyRequested && !apply.code && patch.trim())
       for (const command of value.evaluator.commands) {
         const remainingMs = deadline - Date.now();
         if (remainingMs <= 0) {
