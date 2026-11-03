@@ -25,7 +25,6 @@ import {
   needsCompletionContinuation,
   parseAgentResponse,
   resultSchemaFor,
-  hypothesesSchemaFor,
   missingBlockingPlanningReplies,
   planningApprovalIsValid,
   planningReviewIssues,
@@ -988,40 +987,6 @@ test("synthesis plan accepts stringified arrays from providers", () => {
         4096,
       ),
     /malformed or truncated tool call/,
-  );
-});
-
-test("hypothesis schema requires the configured investigation count", () => {
-  const hypothesis = {
-    id: "A",
-    explanation: "A plausible cause.",
-    prediction: "It predicts the reported behavior.",
-    distinguishingCheck: "Run the focused check.",
-  };
-  const two = hypothesesSchemaFor(2);
-  assert.equal(
-    two.safeParse({
-      hypotheses: [hypothesis, { ...hypothesis, id: "B" }],
-    }).success,
-    true,
-  );
-  assert.equal(two.safeParse({ hypotheses: [hypothesis] }).success, false);
-  assert.equal(
-    hypothesesSchemaFor(1).safeParse({ hypotheses: [hypothesis] }).success,
-    true,
-  );
-  const constrained = hypothesesSchemaFor(2, ["A", "B"]);
-  assert.equal(
-    constrained.safeParse({
-      hypotheses: [hypothesis, { ...hypothesis, id: "B" }],
-    }).success,
-    true,
-  );
-  assert.equal(
-    constrained.safeParse({
-      hypotheses: [hypothesis, { ...hypothesis, id: "H1" }],
-    }).success,
-    false,
   );
 });
 

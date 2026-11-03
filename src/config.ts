@@ -79,7 +79,7 @@ export const schema = z
               .optional(),
             plannerInputUsdPerMillion: z.number().nonnegative().optional(),
             plannerOutputUsdPerMillion: z.number().nonnegative().optional(),
-            parallelInvestigations: z.number().int().min(1).max(4).default(2),
+            parallelInvestigations: z.number().int().min(1).max(6).default(6),
             maxInvestigationRounds: z.number().int().min(1).max(8).default(8),
             maxImplementationReviews: z
               .number()
@@ -107,7 +107,7 @@ export const schema = z
           })
           .default({
             enabled: false,
-            parallelInvestigations: 2,
+            parallelInvestigations: 6,
             maxInvestigationRounds: 8,
             maxImplementationReviews: 5,
             evidenceJudge: {
@@ -128,7 +128,7 @@ export const schema = z
         enabled: false,
         pairedWorkflow: {
           enabled: false,
-          parallelInvestigations: 2,
+          parallelInvestigations: 6,
           maxInvestigationRounds: 8,
           maxImplementationReviews: 5,
           evidenceJudge: {

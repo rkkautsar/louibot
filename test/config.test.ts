@@ -86,7 +86,7 @@ test("reviewer is opt-in and can use a separately priced model on the same provi
     enabled: false,
     pairedWorkflow: {
       enabled: false,
-      parallelInvestigations: 2,
+      parallelInvestigations: 6,
       maxInvestigationRounds: 8,
       maxImplementationReviews: 5,
       evidenceJudge: {
@@ -186,7 +186,7 @@ test("reviewer is opt-in and can use a separately priced model on the same provi
       ...base,
       reviewer: {
         enabled: true,
-        pairedWorkflow: { enabled: true, parallelInvestigations: 5 },
+        pairedWorkflow: { enabled: true, parallelInvestigations: 7 },
       },
     }),
   );
