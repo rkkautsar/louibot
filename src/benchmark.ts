@@ -6,6 +6,17 @@ import { createHash, randomUUID } from "node:crypto";
 import { approvedPlanHandoffSchema } from "./agent.js";
 import { diffWorkspaceFromBaseline } from "./workspace.js";
 
+const removeTreeOptions = {
+  recursive: true,
+  force: true,
+  maxRetries: 10,
+  retryDelay: 200,
+} as const;
+
+async function removeTree(path: string) {
+  await rm(path, removeTreeOptions);
+}
+
 type Case = {
   id: string;
   taskId?: string;
@@ -663,8 +674,7 @@ export async function runBenchmarkCase(
         60_000,
       ).catch(() => {});
     }
-    for (const checkout of checkouts.reverse())
-      await rm(checkout, { recursive: true, force: true });
+    for (const checkout of checkouts.reverse()) await removeTree(checkout);
   }
 }
 

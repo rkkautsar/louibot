@@ -19,6 +19,17 @@ const datasetPath = join(privateDir, "dataset.json");
 const runtime = JSON.parse(
   await readFile(join(runDir, "runtime.json"), "utf8"),
 );
+const removeTreeOptions = {
+  recursive: true,
+  force: true,
+  maxRetries: 10,
+  retryDelay: 200,
+};
+
+async function removeTree(path) {
+  await rm(path, removeTreeOptions);
+}
+
 const allowed = new Set([
   "facebook__docusaurus-8927",
   "facebook__docusaurus-9183",
@@ -380,7 +391,7 @@ async function prepareCheckout(row, destination) {
 async function preflight(instanceId) {
   const row = await rowFor(instanceId);
   const dir = join(privateDir, "grader-check", instanceId);
-  await rm(dir, { recursive: true, force: true });
+  await removeTree(dir);
   await mkdir(dirname(dir), { recursive: true });
   await prepareCheckout(row, dir);
   const tests = join(dir, ".heldout-tests.patch");
@@ -442,7 +453,7 @@ async function preflight(instanceId) {
     if (!report.verified) process.exitCode = 1;
   } finally {
     await rm(tests, { force: true });
-    await rm(dir, { recursive: true, force: true });
+    await removeTree(dir);
   }
 }
 
@@ -533,7 +544,7 @@ if (args[0] === "--init-cache") {
     process.env.BENCHMARK_PATCH_FILE = patchFile;
     await evaluateCandidate(instanceId, worktree);
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await removeTree(dir);
   }
 } else {
   await evaluateCandidate(process.env.BENCHMARK_CASE_ID);
