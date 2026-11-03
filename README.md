@@ -178,4 +178,6 @@ Louibot used `deepseek/deepseek-v4.1-flash`; Mini-SWE-Agent used `gpt-6-luna`. D
 | Mean time per solved task | 31m48s  | 3m26s    |
 | Mean cost per solved task | $0.226  | $0.044   |
 
+Time columns measure setup plus agent time to patch. Mini-SWE stops its `elapsedSeconds` before `--mini-patch` grading; Louibot's blind runs show `evaluationSeconds: 0` because grading was run separately, so neither time column includes hidden-test grading. When Louibot grades inline, `totalSeconds` includes evaluation; `solveSeconds` excludes it. Both include environment setup.
+
 The Louibot times and costs include controller-validation infrastructure failures, repair rounds, and a 90-minute timeout. They are measured values, not clean efficiency numbers; the 8927 run has no completed timed run. The earlier 3/4 pinned-validation result is withdrawn.
