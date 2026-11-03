@@ -236,6 +236,7 @@ export async function runBenchmarkCase(
   let evaluatorSetupWaitSeconds: number | null = null;
   let evaluatorSetupSeconds: number | null = null;
   let evaluatorSetupError: string | null = null;
+  let evaluatorPrepared = false;
   let evaluationStarted: number | null = null;
   let solveSeconds: number | null = null;
   try {
@@ -258,6 +259,39 @@ export async function runBenchmarkCase(
       if (prepared.code)
         evaluatorSetupError =
           prepared.stderr || "Evaluator setup could not be started";
+      if (!prepared.code && value.evaluator.waitCommand) {
+        const waitStarted = Date.now();
+        const waited = await runCommand(
+          value.evaluator.waitCommand,
+          evaluator,
+          { BENCHMARK_CASE_ID: value.instanceId ?? value.id },
+          30 * 60 * 1000,
+        );
+        evaluatorSetupWaitSeconds =
+          Math.round((Date.now() - waitStarted) / 10) / 100;
+        evaluatorPrepared = waited.code === 0;
+        try {
+          const setupMetrics = JSON.parse(waited.stdout) as {
+            setupSeconds?: unknown;
+          };
+          if (
+            typeof setupMetrics.setupSeconds === "number" &&
+            Number.isFinite(setupMetrics.setupSeconds) &&
+            setupMetrics.setupSeconds >= 0
+          )
+            evaluatorSetupSeconds = setupMetrics.setupSeconds;
+        } catch {}
+        if (waited.code)
+          evaluatorSetupError ??=
+            waited.stderr || "Evaluator setup did not become ready";
+        if (evaluatorPrepared)
+          await runCommand(
+            'for entry in * .[!.]*; do [ "$entry" = ".git" ] && continue; [ -e "$entry" ] || continue; cp -a "$entry" ../candidate/; done',
+            evaluator,
+            {},
+            30 * 60 * 1000,
+          );
+      }
     }
     // The setup container is isolated and runs concurrently with the agent.
     deadline = Date.now() + timeoutMs;
@@ -309,6 +343,7 @@ export async function runBenchmarkCase(
           BENCHMARK_IMPLEMENTATION_PLAN_FILE: implementationPlanFile ?? "",
           BENCHMARK_BASE_COMMIT: base,
           BENCHMARK_TASK_ID: value.taskId ?? value.instanceId ?? "",
+          BENCHMARK_SKIP_SETUP: evaluatorPrepared ? "1" : "",
         },
         Math.max(1, deadline - Date.now()),
       );
@@ -412,7 +447,11 @@ export async function runBenchmarkCase(
     }
     await writeFile(join(dir, "candidate.patch"), patch);
     solveSeconds = Math.round((Date.now() - started) / 10) / 100;
-    if (!planningOnlyRequested && value.evaluator.waitCommand) {
+    if (
+      !planningOnlyRequested &&
+      value.evaluator.waitCommand &&
+      !evaluatorPrepared
+    ) {
       const waitStarted = Date.now();
       const waited = await runCommand(
         value.evaluator.waitCommand,

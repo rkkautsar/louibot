@@ -2120,8 +2120,9 @@ export async function code(
         String(error).slice(-2_000),
       );
     }
-    for (const command of config.sandbox.setupCommands ?? [])
-      await sandbox.shell(command, signal);
+    if (process.env.BENCHMARK_SKIP_SETUP !== "1")
+      for (const command of config.sandbox.setupCommands ?? [])
+        await sandbox.shell(command, signal);
     const model = createRunModel(
       undefined,
       undefined,
