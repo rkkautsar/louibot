@@ -1320,7 +1320,6 @@ async function runPlanningOnlyWorkflow(args: {
 }): Promise<Result> {
   const { config, job, store, signal, sandbox } = args;
   const createWorkflowModel = (modelName?: string) => {
-    args.refreshCredentials?.();
     return createModel(config, modelName);
   };
   if (!config.reviewer.pairedWorkflow.enabled)
@@ -1336,10 +1335,7 @@ async function runPlanningOnlyWorkflow(args: {
     reviewerFindings: job.reviewerFeedback,
   };
   const plannerThread = `issue-${job.issue}-attempt-${job.attempt ?? 1}-plan`;
-  const plannerContextMode =
-    process.env.BENCHMARK_PLANNING_CONTEXT_MODE === "continuous"
-      ? "continuous"
-      : "fresh";
+  const plannerContextMode = "fresh";
   let plannerContextNumber = 0;
   const plannerStructuredOutputRepairState = { attempts: 0 };
   const plannerMaxCommands = Math.min(config.agent.maxSteps, 50);
@@ -1427,14 +1423,10 @@ async function runPlanningOnlyWorkflow(args: {
 
   let malformedPlannerRecoveries = 0;
   let evidenceLedger = emptyPlanningEvidenceLedger;
-  let activePlannerThread = plannerThread;
   const invokePlanner = async (message: string) => {
     plannerStructuredOutputRepairState.attempts = 0;
     plannerShellCalls = 0;
-    const contextThread =
-      plannerContextMode === "continuous"
-        ? activePlannerThread
-        : `${plannerThread}-context-${++plannerContextNumber}`;
+    const contextThread = `${plannerThread}-context-${++plannerContextNumber}`;
     store.log(job.issue, "planning.context", {
       mode: plannerContextMode,
       contextThread,
@@ -1503,11 +1495,6 @@ async function runPlanningOnlyWorkflow(args: {
         evidenceLedger,
         output.evidenceLedger,
       );
-    // Continue from the branch that returned the structured plan. In
-    // continuous mode this preserves the conversation after malformed-call
-    // recovery; fresh mode intentionally starts a new context per revision.
-    if (plannerContextMode === "continuous")
-      activePlannerThread = effectiveThread;
     return {
       ...normalizePlanningSubmission(output),
       evidenceLedger,
@@ -2089,7 +2076,6 @@ export async function code(
     apiFormat?: "chat-completions" | "responses",
     reasoningEffort?: ReasoningEffort,
   ) => {
-    options.refreshCredentials?.();
     return createModel(config, modelName, config.agent.maxOutputTokens, {
       apiFormat,
       reasoningEffort,
@@ -2188,7 +2174,6 @@ export async function code(
         store,
         signal,
         sandbox,
-        refreshCredentials: options.refreshCredentials,
       });
     if (options.approvedPlan) {
       const handoff = approvedPlanHandoffSchema.parse(options.approvedPlan);

@@ -3,7 +3,6 @@ import { readFile, writeFile, mkdtemp } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { parse } from "yaml";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { code, type ApprovedPlanHandoff } from "./agent.js";
 import { schema } from "./config.js";
 import { Store, type Job } from "./store.js";
@@ -133,28 +132,6 @@ async function main() {
     const response = await code(measuredConfig, job, store, controller.signal, {
       planningOnly,
       approvedPlan,
-      refreshCredentials:
-        process.env.BENCHMARK_REFRESH_WRANGLER_TOKEN === "1"
-          ? () => {
-              const apiKeyEnv = measuredConfig.endpoint?.apiKeyEnv;
-              if (!apiKeyEnv)
-                throw new Error(
-                  "Wrangler credential refresh requires a configured API key environment variable",
-                );
-              const token = JSON.parse(
-                execFileSync("wrangler", ["auth", "token", "--json"], {
-                  encoding: "utf8",
-                  stdio: ["ignore", "pipe", "pipe"],
-                  timeout: 60_000,
-                }),
-              ).token;
-              if (!token || /\s/.test(token))
-                throw new Error("Wrangler did not return a usable credential");
-              process.env[apiKeyEnv] = token;
-              process.env.CLOUDFLARE_API_TOKEN = token;
-              store.registerSecret(token);
-            }
-          : undefined,
     });
     result = {
       action: response.planningOnly
