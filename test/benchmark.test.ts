@@ -94,9 +94,9 @@ test("benchmark captures a patch, replays only scripted replies, and uses a shal
   assert.equal(result.evaluatorSetupSeconds, 0.25);
   assert.deepEqual((await readFile(lifecycle, "utf8")).trim().split("\n"), [
     "prepare",
-    "agent",
-    "agent",
     "wait",
+    "agent",
+    "agent",
     "evaluate",
     "cleanup",
   ]);
