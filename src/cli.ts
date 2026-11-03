@@ -21,7 +21,6 @@ import { formatDuration, tick } from "./workflow.js";
 import { runDoctor } from "./doctor.js";
 import { resumeFinalReview } from "./agent.js";
 import { formatDiagnostic } from "./errors.js";
-import { discoverValidationCommands } from "./discovery.js";
 import {
   benchmarkStatusIsSuccessful,
   runBenchmarkCase,
@@ -719,17 +718,15 @@ async function runWorker(repositoryConfig: ReturnType<typeof config>) {
 
 addStartOptions(cli.command("start")).action(async (options: StartOptions) => {
   const repositoryConfig = await resolveConfig(options);
-  const validationCommands = repositoryConfig.validation.commands.length
-    ? repositoryConfig.validation.commands
-    : await discoverValidationCommands(repositoryRoot);
+  const validationCommands = repositoryConfig.validation.commands;
   console.log(
     validationCommands.length
       ? `Controller validation: ${validationCommands.join(", ")}`
-      : `Controller validation: none discovered${repositoryConfig.validation.required ? " (required; start stopped)" : " (allowed)"}`,
+      : `Controller validation: none configured${repositoryConfig.validation.required ? " (required; start stopped)" : " (allowed)"}`,
   );
   if (repositoryConfig.validation.required && !validationCommands.length)
     throw new Error(
-      "Validation is required but no commands are configured or discovered. Set validation.commands or pass --validation-command.",
+      "Validation is required but no commands are configured. Set validation.commands or pass --validation-command.",
     );
   await runWorker(repositoryConfig);
 });

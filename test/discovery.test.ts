@@ -5,7 +5,6 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   discoverSandboxImage,
-  discoverValidationCommands,
   infrastructureValidationFailure,
   scopeValidationCommands,
   selectValidationCommands,
@@ -51,19 +50,6 @@ test("sandbox discovery selects a common image from repository files", async () 
     image: "golang:1.25",
     source: "go.mod",
   });
-});
-
-test("validation discovery uses repository-native commands", async () => {
-  const root = await fixture();
-  await writeFile(
-    join(root, "package.json"),
-    JSON.stringify({ scripts: { test: "vitest", build: "tsc" } }),
-  );
-  await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
-  assert.deepEqual(await discoverValidationCommands(root), [
-    "pnpm test",
-    "pnpm run build",
-  ]);
 });
 
 test("planned validation checks replace generic discovery", () => {

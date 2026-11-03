@@ -7,10 +7,7 @@ import { tmpdir } from "node:os";
 import { config, type Config } from "./config.js";
 import { redactErrorText } from "./errors.js";
 import { createModel } from "./model.js";
-import {
-  discoverSandboxImage,
-  discoverValidationCommands,
-} from "./discovery.js";
+import { discoverSandboxImage } from "./discovery.js";
 import { git, Sandbox } from "./workspace.js";
 import { z } from "zod";
 
@@ -275,10 +272,7 @@ export async function runDoctor(
     root,
     repositoryConfig.sandbox.image,
   );
-  const validationCommands =
-    repositoryConfig.validation.commands.length > 0
-      ? repositoryConfig.validation.commands
-      : await discoverValidationCommands(root);
+  const validationCommands = repositoryConfig.validation.commands;
   let healthy = true;
   for (const check of checks(
     root,

@@ -113,64 +113,6 @@ export async function discoverSandboxImage(
   return { image: DEFAULT_IMAGE, source: "default" };
 }
 
-async function packageManagerFor(
-  root: string,
-): Promise<"npm" | "pnpm" | "yarn" | "bun"> {
-  if (await present(root, "pnpm-lock.yaml")) return "pnpm";
-  if (await present(root, "yarn.lock")) return "yarn";
-  if ((await present(root, "bun.lockb")) || (await present(root, "bun.lock")))
-    return "bun";
-  return "npm";
-}
-
-export async function discoverValidationCommands(
-  root: string,
-): Promise<string[]> {
-  const commands: string[] = [];
-  if (await present(root, "package.json")) {
-    const manifest = await readJson(root, "package.json");
-    const scripts = manifest.scripts ?? {};
-    const manager = await packageManagerFor(root);
-    const run = manager === "npm" ? "npm run" : `${manager} run`;
-    if (typeof scripts.test === "string")
-      commands.push(manager === "npm" ? "npm test" : `${manager} test`);
-    if (typeof scripts.build === "string") commands.push(`${run} build`);
-  }
-  const pyproject = await present(root, "pyproject.toml");
-  let pyprojectUsesPytest = false;
-  if (pyproject) {
-    try {
-      pyprojectUsesPytest = /pytest/i.test(
-        await readFile(join(root, "pyproject.toml"), "utf8"),
-      );
-    } catch {
-      pyprojectUsesPytest = false;
-    }
-  }
-  if (
-    (await present(root, "pytest.ini")) ||
-    (await present(root, "tox.ini")) ||
-    pyprojectUsesPytest
-  )
-    commands.push("python -m pytest");
-  if (await present(root, "go.mod")) commands.push("go test ./...");
-  if (await present(root, "Cargo.toml")) commands.push("cargo test");
-  if (await present(root, "mvnw")) commands.push("./mvnw test");
-  else if (await present(root, "pom.xml")) commands.push("mvn test");
-  if (await present(root, "gradlew")) commands.push("./gradlew test");
-  else if (
-    (await present(root, "build.gradle")) ||
-    (await present(root, "build.gradle.kts"))
-  )
-    commands.push("gradle test");
-  if (
-    (await present(root, "global.json")) ||
-    (await present(root, "Directory.Build.props"))
-  )
-    commands.push("dotnet test");
-  return [...new Set(commands)];
-}
-
 export function selectValidationCommands(args: {
   configured: string[];
   planned: string[];
