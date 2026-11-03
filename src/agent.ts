@@ -3373,7 +3373,22 @@ export async function resumeFinalReview(args: {
     controllerValidationResults?: ControllerValidationResult[];
     planner: unknown;
   };
+  const resumeId = randomUUID().slice(0, 8);
   let reviewInput = args.reviewInput;
+  const compactContext = reviewInput.length > 120_000;
+  if (compactContext)
+    reviewInput = JSON.stringify({
+      task: original.task,
+      revision: "patch-resume",
+      diff: original.diff.slice(-20_000),
+      controllerValidationResults: [],
+      planner: {
+        summary:
+          "Planner synthesis omitted from the resumed context; inspect the repository and current diff.",
+      },
+      instruction:
+        "Review this exact diff against the task. Inspect surrounding source and run focused checks when useful. Return findings for actionable defects, or pass only when none remain.",
+    });
   let diff = original.diff;
   let controllerValidationResults = original.controllerValidationResults ?? [];
   let result: Result = {
@@ -3547,7 +3562,12 @@ export async function resumeFinalReview(args: {
               role: "user",
               content: JSON.stringify({
                 task: original.task,
-                plannerSynthesis: original.planner,
+                plannerSynthesis: compactContext
+                  ? {
+                      summary:
+                        "Planner synthesis omitted from the resumed context; inspect the repository and current diff.",
+                    }
+                  : original.planner,
                 latestImplementation: {
                   summary: result.summary,
                   tests: result.tests.slice(-2_000),
@@ -3561,7 +3581,7 @@ export async function resumeFinalReview(args: {
         },
         {
           configurable: {
-            thread_id: `issue-${args.job.issue}-attempt-${args.job.attempt ?? 1}-resume-implementation-${round}`,
+            thread_id: `issue-${args.job.issue}-attempt-${args.job.attempt ?? 1}-resume-implementation-${resumeId}-${round}`,
           },
           recursionLimit: implementationRecursionLimit(
             args.config.reviewer.maxSteps,
