@@ -2,24 +2,21 @@
 import { Command } from "commander";
 import {
   readFileSync,
-  readdirSync,
   openSync,
   closeSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import Database from "better-sqlite3";
 import { parse as parseYaml } from "yaml";
 import { setTimeout as sleep } from "node:timers/promises";
-import { config, savedConfig, schema } from "./config.js";
+import { config, savedConfig } from "./config.js";
 import { knownPricing, reviewerRates } from "./pricing.js";
 import { GitHub } from "./github.js";
 import { Store } from "./store.js";
 import { git } from "./workspace.js";
 import { formatDuration, tick } from "./workflow.js";
 import { runDoctor } from "./doctor.js";
-import { resumeFinalReview } from "./agent.js";
 import { formatDiagnostic } from "./errors.js";
 import {
   benchmarkStatusIsSuccessful,
@@ -103,93 +100,6 @@ benchmark
     console.log(JSON.stringify(result, null, 2));
     if (!benchmarkStatusIsSuccessful(result.status)) process.exitCode = 1;
   });
-const resumeStateDirectory = (runDir: string): string => {
-  const dirs = readdirSync(runDir, { withFileTypes: true })
-    .filter(
-      (entry) => entry.isDirectory() && entry.name.startsWith("louibot-state-"),
-    )
-    .map((entry) => join(runDir, entry.name));
-  const stateDir = dirs.at(-1);
-  if (!stateDir) throw new Error(`No Louibot state directory in ${runDir}`);
-  return stateDir;
-};
-
-const finalReviewInput = (stateDir: string): string => {
-  const db = new Database(join(stateDir, "workflow-review.sqlite"), {
-    readonly: true,
-  });
-  try {
-    const row = db
-      .prepare(
-        "select checkpoint from checkpoints order by checkpoint_id desc limit 1",
-      )
-      .get() as { checkpoint: Buffer | string } | undefined;
-    if (!row) throw new Error("No final review checkpoint found");
-    const checkpoint = JSON.parse(String(row.checkpoint)) as {
-      channel_values?: {
-        messages?: Array<{ kwargs?: { content?: unknown } }>;
-      };
-    };
-    for (const message of checkpoint.channel_values?.messages ?? []) {
-      const content = message.kwargs?.content;
-      if (
-        typeof content === "string" &&
-        content.includes('"controllerValidationResults"') &&
-        content.includes('"planner"')
-      )
-        return content;
-    }
-    throw new Error("Final review checkpoint has no review input");
-  } finally {
-    db.close();
-  }
-};
-
-benchmark
-  .command("resume-review <run-dir>")
-  .requiredOption("--config <file>", "Louibot YAML config used by the run")
-  .option(
-    "--timeout-seconds <seconds>",
-    "Wall-clock limit for the resumed review",
-    "1800",
-  )
-  .action(async (runDirectory: string, options) => {
-    const timeout = Number(options.timeoutSeconds);
-    if (!Number.isSafeInteger(timeout) || timeout <= 0)
-      throw new Error("--timeout-seconds must be a positive integer");
-    const runDir = resolve(runDirectory);
-    const stateDir = resumeStateDirectory(runDir);
-    const configured = schema.parse(
-      parseYaml(readFileSync(resolve(options.config), "utf8")),
-    );
-    const store = new Store(stateDir);
-    const job = store.get(1);
-    if (!job) throw new Error("Resume run has no job state for issue 1");
-    job.worktree = join(runDir, "candidate");
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout * 1000);
-    try {
-      const resumed = await resumeFinalReview({
-        config: configured,
-        job,
-        store,
-        signal: controller.signal,
-        reviewInput: finalReviewInput(stateDir),
-      });
-      if (resumed.diff.trim())
-        writeFileSync(join(runDir, "candidate.patch"), resumed.diff);
-      writeFileSync(
-        join(runDir, "resume-review.json"),
-        `${JSON.stringify(resumed, null, 2)}\n`,
-      );
-      console.log(JSON.stringify(resumed, null, 2));
-      if (!resumed.approved) process.exitCode = 1;
-    } finally {
-      clearTimeout(timer);
-      store.db.close();
-    }
-  });
-
 benchmark
   .command("suite <suite.json>")
   .option("--agent-command <command>", "Command for a real coding agent")
