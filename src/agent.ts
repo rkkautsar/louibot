@@ -9,7 +9,7 @@ import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { z } from "zod";
 import type { Config } from "./config.js";
 import type { Job, Store } from "./store.js";
-import { captureWorkspaceBaseline, Sandbox } from "./workspace.js";
+import { captureWorkspaceBaseline, git, Sandbox } from "./workspace.js";
 import {
   discoverSandboxImage,
   discoverValidationCommands,
@@ -3359,7 +3359,28 @@ export async function resumeFinalReview(args: {
   store: Store;
   signal: AbortSignal;
   reviewInput: string;
-}): Promise<z.infer<typeof reviewSchema>> {
+}): Promise<{
+  review: z.infer<typeof reviewSchema>;
+  result: Result;
+  diff: string;
+  approved: boolean;
+  rounds: number;
+}> {
+  const original = JSON.parse(args.reviewInput) as {
+    task: unknown;
+    diff: string;
+    controllerValidationResults?: ControllerValidationResult[];
+    planner: unknown;
+  };
+  let reviewInput = args.reviewInput;
+  let diff = original.diff;
+  let controllerValidationResults = original.controllerValidationResults ?? [];
+  let result: Result = {
+    status: "done",
+    summary: "Resumed final review",
+    tests: "",
+    questions: [],
+  };
   const reviewerModel = args.config.reviewer.model ?? args.config.model;
   const reviewerInputRate =
     args.config.reviewer.inputUsdPerMillion ??
@@ -3378,8 +3399,8 @@ export async function resumeFinalReview(args: {
     (...values: unknown[]) => args.store.log(args.job.issue, "shell", values),
     args.config.sandbox.network,
     args.config.repository,
-    true,
   );
+  const baseline = await git(args.job.worktree, ["rev-parse", "HEAD^{tree}"]);
   try {
     await sandbox.start();
     const reviewer = createAgent({
@@ -3419,24 +3440,188 @@ export async function resumeFinalReview(args: {
         `${args.store.dir}/workflow-review-resume.sqlite`,
       ),
     });
-    const output = await reviewer.invoke(
-      { messages: [{ role: "user", content: args.reviewInput }] },
-      {
-        configurable: {
-          thread_id: `issue-${args.job.issue}-attempt-${args.job.attempt ?? 1}-review-resume-${randomUUID().slice(0, 8)}`,
-        },
-        recursionLimit: implementationRecursionLimit(
-          args.config.reviewer.maxSteps,
+    let implementationShellCalls = 0;
+    const repairAgent = createAgent({
+      model: createModel(
+        args.config,
+        undefined,
+        args.config.agent.maxOutputTokens,
+      ),
+      systemPrompt: prompt(
+        args.config.agent.clarificationEnabled,
+        sandboxEnvironment(sandbox),
+      ),
+      responseFormat: toolStrategy(
+        resultSchemaFor(args.config.agent.clarificationEnabled),
+      ),
+      tools: [
+        tool(
+          async ({ command }: { command: string }) => {
+            if (implementationShellCalls >= args.config.agent.maxSteps)
+              throw new Error(
+                `Resumed implementation exhausted its ${args.config.agent.maxSteps}-command budget.`,
+              );
+            implementationShellCalls++;
+            return sandbox.shell(command, args.signal);
+          },
+          {
+            name: "shell",
+            description:
+              "Run a shell command in the isolated repository workspace.",
+            schema: z.object({ command: z.string().max(20_000) }),
+          },
         ),
-        signal: args.signal,
-      },
-    );
-    return parseAgentResponse(
-      output.structuredResponse,
-      output.messages,
-      reviewSchema,
-      args.config.agent.maxOutputTokens,
-    );
+      ],
+      middleware: [
+        budgetMiddleware(
+          args.config,
+          args.job,
+          args.store,
+          args.signal,
+          "implementer",
+          {
+            input: args.config.agent.inputUsdPerMillion,
+            output: args.config.agent.outputUsdPerMillion,
+          },
+        ),
+      ],
+      checkpointer: SqliteSaver.fromConnString(
+        `${args.store.dir}/resume-implementation.sqlite`,
+      ),
+    });
+    const maxRounds =
+      args.config.reviewer.pairedWorkflow.maxImplementationReviews;
+    for (let round = 1; round <= maxRounds; round++) {
+      const reviewed = normalizeReviewResult(
+        await reviewer
+          .invoke(
+            { messages: [{ role: "user", content: reviewInput }] },
+            {
+              configurable: {
+                thread_id: `issue-${args.job.issue}-attempt-${args.job.attempt ?? 1}-review-resume`,
+              },
+              recursionLimit: implementationRecursionLimit(
+                args.config.reviewer.maxSteps,
+              ),
+              signal: args.signal,
+            },
+          )
+          .then((output) =>
+            parseAgentResponse(
+              output.structuredResponse,
+              output.messages,
+              reviewSchema,
+              args.config.agent.maxOutputTokens,
+            ),
+          ),
+      );
+      const validationFailures = controllerValidationResults.filter(
+        (check) =>
+          check.status === "failed" &&
+          check.patchFingerprint === validationPatchFingerprint(diff),
+      );
+      const review =
+        validationFailures.length === 0
+          ? reviewed
+          : {
+              ...reviewed,
+              status: "findings" as const,
+              findings: [
+                ...reviewed.findings,
+                ...validationFailures.map((check) => ({
+                  file: "controller-validation",
+                  title: "Configured validation failed",
+                  details: `${check.command}\n${check.output}`,
+                })),
+              ],
+            };
+      if (review.status === "pass" && review.findings.length === 0)
+        return { review, result, diff, approved: true, rounds: round };
+      if (round === maxRounds)
+        return { review, result, diff, approved: false, rounds: round };
+      const repaired = await repairAgent.invoke(
+        {
+          messages: [
+            {
+              role: "user",
+              content: JSON.stringify({
+                task: original.task,
+                plannerSynthesis: original.planner,
+                latestImplementation: {
+                  summary: result.summary,
+                  tests: result.tests.slice(-2_000),
+                },
+                reviewerFindings: review.findings,
+                instruction:
+                  "Address each reviewer finding with a focused repair. Product code and tests may be edited when the finding calls for it. Run relevant checks and report what changed.",
+              }),
+            },
+          ],
+        },
+        {
+          configurable: {
+            thread_id: `issue-${args.job.issue}-attempt-${args.job.attempt ?? 1}-resume-implementation-${round}`,
+          },
+          recursionLimit: implementationRecursionLimit(
+            args.config.reviewer.maxSteps,
+          ),
+          signal: args.signal,
+        },
+      );
+      const repairResult = parseAgentResponse(
+        repaired.structuredResponse,
+        repaired.messages,
+        resultSchemaFor(args.config.agent.clarificationEnabled),
+        args.config.agent.maxOutputTokens,
+      );
+      if (repairResult.status !== "done")
+        return {
+          review: {
+            ...review,
+            status: "findings",
+            findings: [
+              ...review.findings,
+              {
+                file: "implementation",
+                title: "Repair did not complete",
+                details: repairResult.summary.slice(0, 1_000),
+              },
+            ],
+          },
+          result: repairResult,
+          diff,
+          approved: false,
+          rounds: round,
+        };
+      result = repairResult;
+      const validation = await validate(
+        args.config,
+        args.job.worktree,
+        sandbox,
+        args.signal,
+        [],
+        diff,
+      );
+      const records = controllerValidationRecords({
+        checks: validation.checks,
+        diff,
+        attempt: round + 1,
+      });
+      controllerValidationResults = [
+        ...controllerValidationResults,
+        ...records,
+      ];
+      reviewInput = JSON.stringify({
+        task: original.task,
+        revision: `patch-${round + 1}`,
+        diff: diff.slice(-30_000),
+        controllerValidationResults,
+        planner: original.planner,
+        instruction:
+          "Review this exact diff against the task and the planner synthesis. Inspect surrounding source and run focused checks when useful. Return findings for actionable defects, or pass only when none remain.",
+      });
+    }
+    throw new Error("Resumed review loop ended without a verdict");
   } finally {
     await sandbox.finish().catch(() => {});
     await sandbox.dispose().catch(() => {});

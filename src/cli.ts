@@ -170,19 +170,21 @@ benchmark
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout * 1000);
     try {
-      const review = await resumeFinalReview({
+      const resumed = await resumeFinalReview({
         config: configured,
         job,
         store,
         signal: controller.signal,
         reviewInput: finalReviewInput(stateDir),
       });
+      if (resumed.diff.trim())
+        writeFileSync(join(runDir, "candidate.patch"), resumed.diff);
       writeFileSync(
         join(runDir, "resume-review.json"),
-        `${JSON.stringify(review, null, 2)}\n`,
+        `${JSON.stringify(resumed, null, 2)}\n`,
       );
-      console.log(JSON.stringify(review, null, 2));
-      if (review.status !== "pass") process.exitCode = 1;
+      console.log(JSON.stringify(resumed, null, 2));
+      if (!resumed.approved) process.exitCode = 1;
     } finally {
       clearTimeout(timer);
       store.db.close();
