@@ -165,19 +165,17 @@ The separate [benchmark harness](benchmarks/README.md) runs isolated headless ca
 
 Louibot used `deepseek/deepseek-v4.1-flash`; Mini-SWE-Agent used `gpt-6-luna`. Different models, so this is a workflow comparison, not a model-quality comparison.
 
-| Task  | Louibot | Louibot time     | Louibot cost | Mini-SWE | Mini-SWE time | Mini-SWE cost |
-| ----- | ------- | ---------------- | ------------ | -------- | ------------- | ------------- |
-| 9183  | fail    | 58m52s           | $0.323       | fail     | 3m17s         | $0.044        |
-| 10309 | pass    | 33m57s           | $0.247       | fail     | 3m30s         | $0.038        |
-| 10130 | pass    | 29m39s           | $0.205       | pass     | 3m26s         | $0.044        |
-| 8927  | fail    | no completed run | —            | fail     | 9m37s         | $0.086        |
+| Task  | Louibot | Louibot solve time | Louibot cost | Mini-SWE | Mini-SWE solve time | Mini-SWE cost |
+| ----- | ------- | ------------------ | ------------ | -------- | ------------------- | ------------- |
+| 9183  | fail    | 58m46s             | $0.323       | fail     | 3m17s               | $0.044        |
+| 10309 | pass    | 33m52s             | $0.247       | fail     | 3m30s               | $0.038        |
+| 10130 | pass    | 29m36s             | $0.205       | pass     | 3m26s               | $0.044        |
+| 8927  | fail    | no completed run   | —            | fail     | 9m37s               | $0.086        |
 
-|                           | Louibot | Mini-SWE |
-| ------------------------- | ------- | -------- |
-| Solved                    | **2/4** | **1/4**  |
-| Mean time per solved task | 31m48s  | 3m26s    |
-| Mean cost per solved task | $0.226  | $0.044   |
+|                                 | Louibot | Mini-SWE |
+| ------------------------------- | ------- | -------- |
+| Solved                          | **2/4** | **1/4**  |
+| Mean solve time per solved task | 31m44s  | 3m26s    |
+| Mean cost per solved task       | $0.226  | $0.044   |
 
-Time columns measure setup plus agent time to patch. Mini-SWE stops its `elapsedSeconds` before `--mini-patch` grading; Louibot's blind runs show `evaluationSeconds: 0` because grading was run separately, so neither time column includes hidden-test grading. When Louibot grades inline, `totalSeconds` includes evaluation; `solveSeconds` excludes it. Both include environment setup.
-
-The Louibot times and costs include controller-validation infrastructure failures, repair rounds, and a 90-minute timeout. They are measured values, not clean efficiency numbers; the 8927 run has no completed timed run. The earlier 3/4 pinned-validation result is withdrawn.
+Both solve-time columns run from environment setup through patch capture and exclude hidden-test grading.
