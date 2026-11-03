@@ -93,7 +93,6 @@ test("reviewer is opt-in and can use a separately priced model on the same provi
         accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
         apiTokenEnv: "CLOUDFLARE_API_TOKEN",
         inputUsdPerMillion: 0.038,
-        minSupportedProbability: 0.85,
       },
     },
     maxSteps: 24,
@@ -156,10 +155,6 @@ test("reviewer is opt-in and can use a separately priced model on the same provi
   assert.equal(paired.reviewer.pairedWorkflow.parallelInvestigations, 3);
   assert.equal(paired.reviewer.pairedWorkflow.maxInvestigationRounds, 8);
   assert.equal(paired.reviewer.pairedWorkflow.maxImplementationReviews, 5);
-  assert.equal(
-    paired.reviewer.pairedWorkflow.evidenceJudge.minSupportedProbability,
-    0.85,
-  );
   assert.throws(() =>
     schema.parse({
       ...base,

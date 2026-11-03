@@ -98,13 +98,11 @@ export const schema = z
                   .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
                   .default("CLOUDFLARE_API_TOKEN"),
                 inputUsdPerMillion: z.number().nonnegative().default(0.038),
-                minSupportedProbability: z.number().min(0).max(1).default(0.85),
               })
               .default({
                 accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
                 apiTokenEnv: "CLOUDFLARE_API_TOKEN",
                 inputUsdPerMillion: 0.038,
-                minSupportedProbability: 0.85,
               }),
           })
           .default({
@@ -116,7 +114,6 @@ export const schema = z
               accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
               apiTokenEnv: "CLOUDFLARE_API_TOKEN",
               inputUsdPerMillion: 0.038,
-              minSupportedProbability: 0.85,
             },
           }),
         model: z
@@ -138,7 +135,6 @@ export const schema = z
             accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
             apiTokenEnv: "CLOUDFLARE_API_TOKEN",
             inputUsdPerMillion: 0.038,
-            minSupportedProbability: 0.85,
           },
         },
         maxSteps: 24,

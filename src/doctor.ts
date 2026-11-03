@@ -49,10 +49,6 @@ function modelKeyEnv(repositoryConfig: Config): string {
   );
 }
 
-export function modelCredentialSource(repositoryConfig: Config): string {
-  return `host environment variable ${modelKeyEnv(repositoryConfig)} (value hidden)`;
-}
-
 export async function probeModelAccess(
   repositoryConfig: Config,
   invoke?: () => Promise<unknown>,
@@ -216,15 +212,6 @@ function checks(
       run: () => probeSandbox(image, repositoryConfig.repository),
     },
     {
-      label: "Model API key",
-      required: true,
-      run: async () => {
-        const envName = modelKeyEnv(repositoryConfig);
-        if (!process.env[envName]) throw new Error(`${envName} is not set`);
-        return `using ${modelCredentialSource(repositoryConfig)}`;
-      },
-    },
-    {
       label: "Model tool calling",
       required: true,
       run: async () => probeModelAccess(repositoryConfig),
@@ -239,15 +226,15 @@ function checks(
       },
     },
     {
-      label: "Validation discovery",
+      label: "Controller validation",
       required:
         validationCommands.length > 0 || !repositoryConfig.validation.required,
       run: async () =>
         validationCommands.length
           ? validationCommands.join(", ")
           : repositoryConfig.validation.required
-            ? "required, but no controller validation command was configured or discovered"
-            : "no controller validation command discovered (allowed)",
+            ? "required, but no controller validation command was configured"
+            : "no controller validation command configured (allowed)",
     },
     {
       label: "Sandbox network",

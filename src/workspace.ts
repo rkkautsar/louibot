@@ -42,12 +42,6 @@ function outputParts(): { head: number; tail: number } {
   return { head: Math.ceil(available / 2), tail: Math.floor(available / 2) };
 }
 
-export function truncateShellOutput(output: string): string {
-  if (output.length <= MAX_SHELL_OUTPUT) return output;
-  const { head, tail } = outputParts();
-  return `${output.slice(0, head)}${SHELL_OUTPUT_MARKER}${output.slice(-tail)}`;
-}
-
 function snapshotPathExcluded(path: string): boolean {
   const normalized = path.split(/[\\/]/).join("/");
   if (secretPath(path)) return true;
@@ -682,10 +676,6 @@ export class Sandbox {
       .join("\n");
   }
 
-  shellCommands(limit = 32): string[] {
-    return this.shellHistory.slice(-limit).map(({ command }) => command);
-  }
-
   async fileExists(relativePath: string): Promise<boolean> {
     if (!this.stage || !this.stageReady)
       throw new Error("Sandbox stage is not ready for file inspection");
@@ -842,16 +832,6 @@ export class Sandbox {
     if (!this.started || this.disposed)
       throw new Error("Sandbox is not running");
     return this.executeShell(this.id, command, signal);
-  }
-
-  async explorationShell(
-    command: string,
-    signal?: AbortSignal,
-  ): Promise<string> {
-    // Investigation and implementation share one container, so repro files
-    // in /tmp and prepared dependencies remain available across the handoff.
-    // The investigator is instructed not to edit product files before review.
-    return this.shell(command, signal);
   }
 
   private async executeShell(

@@ -25,7 +25,6 @@ import {
   Sandbox,
   MAX_SHELL_OUTPUT,
   syncWorkspaceFromStage,
-  truncateShellOutput,
 } from "../src/workspace.js";
 
 const execFileAsync = promisify(execFile);
@@ -134,7 +133,7 @@ test("exploration shell reuses the writable implementation container", async () 
     process.env.LOUIBOT_TEST_DOCKER_LOG = dockerLog;
     const sandbox = new Sandbox("node:22", worktree, 120);
     await sandbox.start();
-    assert.equal(await sandbox.explorationShell("find . -maxdepth 1"), "");
+    assert.equal(await sandbox.shell("find . -maxdepth 1"), "");
     await sandbox.finish();
     await sandbox.dispose();
 
@@ -153,15 +152,6 @@ test("exploration shell reuses the writable implementation container", async () 
       delete process.env.LOUIBOT_TEST_DOCKER_LOG;
     else process.env.LOUIBOT_TEST_DOCKER_LOG = originalDockerLog;
   }
-});
-
-test("shell output keeps both the beginning and end when truncated", () => {
-  const output = `${"head ".repeat(10_000)}${"tail ".repeat(10_000)}`;
-  const truncated = truncateShellOutput(output);
-  assert.ok(truncated.length <= MAX_SHELL_OUTPUT);
-  assert.match(truncated, /^head /);
-  assert.match(truncated, /tail $/);
-  assert.match(truncated, /output truncated by Louibot/);
 });
 
 test("large shell output leaves an agent-readable sandbox file", () => {

@@ -329,7 +329,6 @@ export async function runBenchmarkCase(
         {
           BENCHMARK_CASE_ID: value.id,
           BENCHMARK_PROMPT_FILE: promptFile,
-          BENCHMARK_MODE: value.mode ?? "stateless",
           BENCHMARK_CODE_MAP:
             value.mode === "code-map" ? join(dir, "code-map.txt") : "",
           BENCHMARK_TIME_BUDGET_SECONDS: String(
@@ -341,8 +340,6 @@ export async function runBenchmarkCase(
               : String(tokenBudgetRemaining),
           BENCHMARK_RESULT_FILE: resultFile,
           BENCHMARK_IMPLEMENTATION_PLAN_FILE: implementationPlanFile ?? "",
-          BENCHMARK_BASE_COMMIT: base,
-          BENCHMARK_TASK_ID: value.taskId ?? value.instanceId ?? "",
           BENCHMARK_SKIP_SETUP: evaluatorPrepared ? "1" : "",
         },
         Math.max(1, deadline - Date.now()),

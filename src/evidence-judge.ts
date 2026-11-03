@@ -3,31 +3,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Config } from "./config.js";
 
-export interface EvidenceClaim {
-  kind: "example" | "finding";
-  text: string;
-  command?: string;
-}
-
-export interface ShellEvidence {
-  command: string;
-  output: string;
-}
-
-export interface EvidenceJudgment {
-  supported: boolean;
-  verdict: "supported" | "contradicted" | "unverifiable";
-  probability: number;
-  confidence: number;
-}
-
-export interface EvidenceJudgeResult {
-  judgments: EvidenceJudgment[];
-  model: string;
-  inputTokens?: number;
-  estimatedCostUsd: number;
-}
-
 export interface PlanningReplyCheck {
   concernId: string;
   disposition: "changed" | "rebutted" | "unable_to_address";
@@ -58,9 +33,6 @@ export interface PlanningReadinessJudgment {
 }
 
 const MODEL = "@cf/cloudflare/clef-flash";
-const MAX_TRACE_CHARS = 28_000;
-const MAX_COMMAND_CHARS = 2_000;
-const MAX_OUTPUT_CHARS = 2_500;
 
 function tomlString(source: string, key: string): string | undefined {
   const match = source.match(
@@ -80,61 +52,6 @@ export function readWranglerOAuthToken(
   } catch {
     return undefined;
   }
-}
-
-function boundedTrace(evidence: ShellEvidence[]): ShellEvidence[] {
-  const selected = evidence.slice(-20).map(({ command, output }) => ({
-    command: command.slice(0, MAX_COMMAND_CHARS),
-    output: output.slice(0, MAX_OUTPUT_CHARS),
-  }));
-  let budget = MAX_TRACE_CHARS;
-  const bounded: ShellEvidence[] = [];
-  for (const item of selected.reverse()) {
-    const size = item.command.length + item.output.length;
-    if (size > budget) continue;
-    bounded.unshift(item);
-    budget -= size;
-  }
-  return bounded;
-}
-
-function normalizeCommand(command: string): string {
-  return command
-    .replaceAll("`", "")
-    .replace(/^\s*\$\s*/, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function commandWasRun(command: string, evidence: ShellEvidence[]): boolean {
-  const expected = normalizeCommand(command);
-  if (!expected || /\bnot run\b/i.test(expected)) return false;
-  return evidence.some(({ command: actual }) => {
-    const observed = normalizeCommand(actual);
-    return observed === expected || observed.includes(expected);
-  });
-}
-
-function relevantTrace(claim: EvidenceClaim, evidence: ShellEvidence[]) {
-  const terms = new Set(
-    `${claim.command ?? ""} ${claim.text}`
-      .toLowerCase()
-      .match(/[a-z0-9][a-z0-9_./-]{3,}/g) ?? [],
-  );
-  const ranked = evidence.map((item, index) => {
-    const haystack = `${item.command}\n${item.output}`.toLowerCase();
-    let score = 0;
-    for (const term of terms) if (haystack.includes(term)) score += term.length;
-    if (claim.command && commandWasRun(claim.command, [item])) score += 10_000;
-    return { item, index, score };
-  });
-  const selected = ranked
-    .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .slice(0, 5)
-    .sort((a, b) => a.index - b.index)
-    .map(({ item }) => item);
-  return boundedTrace(selected.length ? selected : evidence.slice(-3));
 }
 
 function usageInputTokens(value: unknown): number | undefined {
@@ -451,156 +368,6 @@ export async function judgePlanningReadiness(args: {
     inputTokens: usage,
     estimatedCostUsd:
       ((usage ?? estimatedInputTokens) * settings.inputUsdPerMillion) /
-      1_000_000,
-  };
-}
-
-export async function judgeEvidenceClaims(args: {
-  config: Config;
-  claims: EvidenceClaim[];
-  shellEvidence: ShellEvidence[];
-  currentCostUsd: number;
-  maxCostUsd: number;
-  signal?: AbortSignal;
-}): Promise<EvidenceJudgeResult> {
-  if (args.claims.length === 0)
-    return { judgments: [], model: MODEL, estimatedCostUsd: 0 };
-
-  const settings = args.config.reviewer.pairedWorkflow.evidenceJudge;
-  const accountId = process.env[settings.accountIdEnv];
-  if (!accountId)
-    throw new Error(
-      `Set ${settings.accountIdEnv} for the paired evidence judge`,
-    );
-  const token = process.env[settings.apiTokenEnv] ?? readWranglerOAuthToken();
-  if (!token)
-    throw new Error(
-      `Set ${settings.apiTokenEnv} or sign in with Wrangler before using the paired evidence judge`,
-    );
-
-  const requests = args.claims.map((claim) => {
-    const state = JSON.stringify({
-      instruction:
-        "Judge whether this reviewer claim is supported by the recorded shell tool calls and outputs. The trace is authoritative. Verify every stated criterion and any applicable conditional step; a component check does not prove an untested integration or full build. A claim of success requires a recorded command that performs that check and output showing success. No matching command means unverifiable; contradictory output means contradicted. Do not trust reviewer wording as evidence.",
-      reviewerClaim: claim,
-      claimedCommandWasRun: claim.command
-        ? commandWasRun(claim.command, args.shellEvidence)
-        : undefined,
-      recordedShellToolCalls: relevantTrace(claim, args.shellEvidence),
-    });
-    return JSON.stringify({
-      model: "clef-flash",
-      state,
-      questions: {
-        assessment: {
-          type: "choice",
-          instructions:
-            "Is every required part of this reviewer claim supported by these recorded shell calls? Mark supported only when the trace directly establishes each applicable check and result.",
-          criteria: {
-            supported:
-              "The recorded command and output directly support the claim.",
-            contradicted: "Recorded output conflicts with the claim.",
-            unverifiable:
-              "The trace does not contain enough evidence to confirm the claim.",
-          },
-        },
-      },
-    });
-  });
-  const estimatedInputTokens = requests.reduce(
-    (sum, body) => sum + Math.ceil(Buffer.byteLength(body) / 3),
-    0,
-  );
-  const reserveUsd =
-    (estimatedInputTokens * settings.inputUsdPerMillion) / 1_000_000;
-  if (args.currentCostUsd + reserveUsd > args.maxCostUsd)
-    throw new Error(
-      "Cost budget exceeded before the paired evidence judge call",
-    );
-
-  const judgments: EvidenceJudgment[] = [];
-  let inputTokensTotal = 0;
-  let haveAllUsage = true;
-  for (let index = 0; index < args.claims.length; index++) {
-    const claim = args.claims[index]!;
-    const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${MODEL}`,
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json",
-        },
-        body: requests[index],
-        signal: args.signal
-          ? AbortSignal.any([
-              args.signal,
-              AbortSignal.timeout(
-                args.config.agent.modelRequestTimeoutSeconds * 1000,
-              ),
-            ])
-          : AbortSignal.timeout(
-              args.config.agent.modelRequestTimeoutSeconds * 1000,
-            ),
-      },
-    );
-    const responseBody: unknown = await response.json().catch(() => undefined);
-    if (!response.ok)
-      throw new Error(
-        `Cloudflare Clef-Flash evidence judge failed (${response.status}): ${JSON.stringify(responseBody).slice(0, 1000)}`,
-      );
-    if (!responseBody || typeof responseBody !== "object")
-      throw new Error("Cloudflare Clef-Flash returned an invalid response");
-
-    const envelope = responseBody as Record<string, unknown>;
-    const result = (envelope.result ?? envelope) as Record<string, unknown>;
-    const answers = result.answers as Record<string, unknown> | undefined;
-    const answer = answers?.assessment as Record<string, unknown> | undefined;
-    const verdict = answer?.choice;
-    const probabilities = answer?.probabilities as
-      Record<string, unknown> | undefined;
-    const probability = probabilities?.supported;
-    const confidence = answer?.confidence;
-    if (
-      !answer ||
-      !["supported", "contradicted", "unverifiable"].includes(
-        String(verdict),
-      ) ||
-      typeof probability !== "number" ||
-      typeof confidence !== "number"
-    )
-      throw new Error(`Cloudflare Clef-Flash omitted claim_${index + 1}`);
-
-    const commandObserved = claim.command
-      ? commandWasRun(claim.command, args.shellEvidence)
-      : true;
-    const supported =
-      commandObserved &&
-      verdict === "supported" &&
-      probability >= settings.minSupportedProbability;
-    judgments.push({
-      supported,
-      verdict: !commandObserved
-        ? "unverifiable"
-        : supported
-          ? "supported"
-          : verdict === "contradicted"
-            ? "contradicted"
-            : "unverifiable",
-      probability,
-      confidence,
-    });
-    const usage = usageInputTokens(result.usage);
-    if (usage === undefined) haveAllUsage = false;
-    else inputTokensTotal += usage;
-  }
-  const inputTokens = haveAllUsage ? inputTokensTotal : undefined;
-  return {
-    judgments,
-    model: MODEL,
-    inputTokens,
-    estimatedCostUsd:
-      ((inputTokens ?? estimatedInputTokens) * settings.inputUsdPerMillion) /
       1_000_000,
   };
 }

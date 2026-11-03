@@ -13,8 +13,6 @@ import { captureWorkspaceBaseline, git, Sandbox } from "./workspace.js";
 import {
   discoverSandboxImage,
   infrastructureValidationFailure,
-  scopeValidationCommands,
-  selectValidationCommands,
   serialValidationCommand,
 } from "./discovery.js";
 import {
@@ -762,17 +760,12 @@ async function validate(
   }>;
 }> {
   const configuredCommands = config.validation.commands;
-  const selectedCommands = selectValidationCommands({
-    configured: configuredCommands,
-    planned: requiredChecks.map((check) => check.command),
-  });
-  const commands = configuredCommands.length
-    ? selectedCommands
-    : await scopeValidationCommands({
-        root,
-        diff: currentDiff,
-        commands: selectedCommands,
-      });
+  const commands = [
+    ...new Set([
+      ...configuredCommands,
+      ...requiredChecks.map((check) => check.command),
+    ]),
+  ];
   if (!commands.length) {
     if (config.validation.required)
       throw new Error(
@@ -1381,7 +1374,7 @@ async function runPlanningOnlyWorkflow(args: {
             );
           }
           plannerShellCalls++;
-          return sandbox.explorationShell(command, signal);
+          return sandbox.shell(command, signal);
         },
         {
           name: "shell",
@@ -1409,7 +1402,7 @@ async function runPlanningOnlyWorkflow(args: {
     tools: [
       tool(
         async ({ command }: { command: string }) =>
-          sandbox.explorationShell(command, signal),
+          sandbox.shell(command, signal),
         {
           name: "shell",
           description:
@@ -2326,7 +2319,7 @@ export async function code(
                   if (investigationRemaining <= 0)
                     return "The shared investigation command budget is exhausted. Return the structured finding from the evidence already gathered.";
                   investigationRemaining--;
-                  return sandbox.explorationShell(command, signal);
+                  return sandbox.shell(command, signal);
                 },
                 {
                   name: "shell",
@@ -2748,7 +2741,7 @@ export async function code(
           tools: [
             tool(
               async ({ command }: { command: string }) =>
-                sandbox.explorationShell(command, signal),
+                sandbox.shell(command, signal),
               {
                 name: "shell",
                 description:
@@ -3001,7 +2994,7 @@ export async function code(
             tool(
               async ({ command }: { command: string }) => {
                 reviewerShellCalls++;
-                return sandbox.explorationShell(command, signal);
+                return sandbox.shell(command, signal);
               },
               {
                 name: "shell",
@@ -3425,7 +3418,7 @@ export async function resumeFinalReview(args: {
       tools: [
         tool(
           async ({ command }: { command: string }) =>
-            sandbox.explorationShell(command, args.signal),
+            sandbox.shell(command, args.signal),
           {
             name: "shell",
             description:

@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  cleanError,
-  modelCredentialSource,
-  probeModelAccess,
-} from "../src/doctor.js";
+import { cleanError, probeModelAccess } from "../src/doctor.js";
 import { schema } from "../src/config.js";
 
 const compatibleConfig = schema.parse({
@@ -40,13 +36,6 @@ test("doctor errors redact values of secret environment variables", () => {
     if (previousValue === undefined) delete process.env[name];
     else process.env[name] = previousValue;
   }
-});
-
-test("doctor names the selected host credential source without exposing it", () => {
-  assert.equal(
-    modelCredentialSource(compatibleConfig),
-    "host environment variable LOUIBOT_DOCTOR_TOKEN (value hidden)",
-  );
 });
 
 test("doctor probes using the configured credential and reports only its name", async () => {
