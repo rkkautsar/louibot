@@ -12,7 +12,6 @@ import type { Job, Store } from "./store.js";
 import { captureWorkspaceBaseline, git, Sandbox } from "./workspace.js";
 import {
   discoverSandboxImage,
-  discoverValidationCommands,
   infrastructureValidationFailure,
   scopeValidationCommands,
   selectValidationCommands,
@@ -763,12 +762,8 @@ async function validate(
   }>;
 }> {
   const configuredCommands = config.validation.commands;
-  const discoveredCommands = configuredCommands.length
-    ? []
-    : await discoverValidationCommands(root);
   const selectedCommands = selectValidationCommands({
     configured: configuredCommands,
-    discovered: discoveredCommands,
     planned: requiredChecks.map((check) => check.command),
   });
   const commands = configuredCommands.length
@@ -781,7 +776,7 @@ async function validate(
   if (!commands.length) {
     if (config.validation.required)
       throw new Error(
-        "Controller validation is required but no commands are configured or discoverable. Set validation.commands or use --validation-command.",
+        "Controller validation is required but no commands are configured or planned. Set validation.commands or provide planned checks.",
       );
     return { failures: [], checks: [] };
   }

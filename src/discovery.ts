@@ -173,15 +173,9 @@ export async function discoverValidationCommands(
 
 export function selectValidationCommands(args: {
   configured: string[];
-  discovered: string[];
   planned: string[];
 }): string[] {
-  const base = args.configured.length
-    ? args.configured
-    : args.planned.length
-      ? []
-      : args.discovered;
-  return [...new Set([...base, ...args.planned])];
+  return [...new Set([...args.configured, ...args.planned])];
 }
 
 async function directoryExists(path: string): Promise<boolean> {

@@ -70,7 +70,6 @@ test("planned validation checks replace generic discovery", () => {
   assert.deepEqual(
     selectValidationCommands({
       configured: [],
-      discovered: ["yarn test", "yarn run build"],
       planned: ["yarn jest packages/widget --runInBand"],
     }),
     ["yarn jest packages/widget --runInBand"],
@@ -78,7 +77,6 @@ test("planned validation checks replace generic discovery", () => {
   assert.deepEqual(
     selectValidationCommands({
       configured: ["yarn lint"],
-      discovered: ["yarn test"],
       planned: ["yarn jest packages/widget --runInBand"],
     }),
     ["yarn lint", "yarn jest packages/widget --runInBand"],
@@ -86,15 +84,13 @@ test("planned validation checks replace generic discovery", () => {
   assert.deepEqual(
     selectValidationCommands({
       configured: [],
-      discovered: ["yarn test", "yarn run build"],
       planned: [],
     }),
-    ["yarn test", "yarn run build"],
+    [],
   );
   assert.deepEqual(
     selectValidationCommands({
       configured: ["yarn lint"],
-      discovered: ["yarn test"],
       planned: [],
     }),
     ["yarn lint"],
