@@ -6,6 +6,10 @@ import test from "node:test";
 import {
   discoverSandboxImage,
   discoverValidationCommands,
+  infrastructureValidationFailure,
+  scopeValidationCommands,
+  selectValidationCommands,
+  serialValidationCommand,
 } from "../src/discovery.js";
 
 const temporary = new Set<string>();
@@ -60,4 +64,94 @@ test("validation discovery uses repository-native commands", async () => {
     "pnpm test",
     "pnpm run build",
   ]);
+});
+
+test("planned validation checks replace generic discovery", () => {
+  assert.deepEqual(
+    selectValidationCommands({
+      configured: [],
+      discovered: ["yarn test", "yarn run build"],
+      planned: ["yarn jest packages/widget --runInBand"],
+    }),
+    ["yarn jest packages/widget --runInBand"],
+  );
+  assert.deepEqual(
+    selectValidationCommands({
+      configured: ["yarn lint"],
+      discovered: ["yarn test"],
+      planned: ["yarn jest packages/widget --runInBand"],
+    }),
+    ["yarn lint", "yarn jest packages/widget --runInBand"],
+  );
+  assert.deepEqual(
+    selectValidationCommands({
+      configured: [],
+      discovered: ["yarn test", "yarn run build"],
+      planned: [],
+    }),
+    ["yarn test", "yarn run build"],
+  );
+  assert.deepEqual(
+    selectValidationCommands({
+      configured: ["yarn lint"],
+      discovered: ["yarn test"],
+      planned: [],
+    }),
+    ["yarn lint"],
+  );
+});
+
+test("bare test commands are scoped to changed workspace packages", async () => {
+  const root = await fixture();
+  await writeFile(
+    join(root, "package.json"),
+    JSON.stringify({ workspaces: ["packages/*"] }),
+  );
+  await mkdir(join(root, "packages", "widget"), { recursive: true });
+  await writeFile(
+    join(root, "packages", "widget", "package.json"),
+    JSON.stringify({ name: "widget" }),
+  );
+  assert.deepEqual(
+    await scopeValidationCommands({
+      root,
+      diff: "diff --git a/packages/widget/src/index.ts b/packages/widget/src/index.ts\n",
+      commands: ["yarn test", "yarn run build"],
+    }),
+    ["yarn test packages/widget", "yarn run build"],
+  );
+  assert.deepEqual(
+    await scopeValidationCommands({
+      root,
+      diff: "diff --git a/docs/readme.md b/docs/readme.md\n",
+      commands: ["yarn test"],
+    }),
+    ["yarn test"],
+  );
+});
+
+test("infrastructure failures and serial retries are classified", () => {
+  assert.equal(
+    infrastructureValidationFailure(
+      "failed to handle: The global thread pool has not been initialized.",
+    ),
+    true,
+  );
+  assert.equal(
+    infrastructureValidationFailure("Error: Sandbox is not running"),
+    true,
+  );
+  assert.equal(
+    infrastructureValidationFailure("FAIL src/widget.test.ts: expected true"),
+    false,
+  );
+  assert.equal(serialValidationCommand("yarn test"), "yarn test --runInBand");
+  assert.equal(
+    serialValidationCommand("yarn test --runInBand"),
+    "yarn test --runInBand",
+  );
+  assert.equal(
+    serialValidationCommand("pnpm vitest run"),
+    "pnpm vitest run --maxWorkers=1",
+  );
 });

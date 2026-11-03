@@ -1,10 +1,18 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 const DEFAULT_IMAGE = "node:22";
+const ignoredWorkspaceDirs: Record<string, true> = {
+  ".git": true,
+  ".louibot": true,
+  build: true,
+  dist: true,
+  node_modules: true,
+};
 
 type PackageManifest = {
   scripts?: Record<string, unknown>;
+  workspaces?: string[] | { packages?: string[] };
 };
 
 async function present(root: string, name: string): Promise<boolean> {
@@ -161,4 +169,149 @@ export async function discoverValidationCommands(
   )
     commands.push("dotnet test");
   return [...new Set(commands)];
+}
+
+export function selectValidationCommands(args: {
+  configured: string[];
+  discovered: string[];
+  planned: string[];
+}): string[] {
+  const base = args.configured.length
+    ? args.configured
+    : args.planned.length
+      ? []
+      : args.discovered;
+  return [...new Set([...base, ...args.planned])];
+}
+
+async function directoryExists(path: string): Promise<boolean> {
+  try {
+    await readdir(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function expandWorkspacePattern(
+  root: string,
+  pattern: string,
+): Promise<string[]> {
+  const parts = pattern.replace(/^\.\//, "").split(/[\\/]/).filter(Boolean);
+  const walk = async (base: string, index: number): Promise<string[]> => {
+    if (index >= parts.length) return [base];
+    const part = parts[index]!;
+    if (part === "**") {
+      const entries = await readdir(base, { withFileTypes: true }).catch(
+        () => [],
+      );
+      const result = [...(await walk(base, index + 1))];
+      for (const entry of entries) {
+        if (!entry.isDirectory() || ignoredWorkspaceDirs[entry.name]) continue;
+        result.push(...(await walk(join(base, entry.name), index)));
+      }
+      return result;
+    }
+    const candidates: string[] = [];
+    if (part.includes("*")) {
+      const matcher = new RegExp(
+        `^${part.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*")}$`,
+      );
+      for (const entry of await readdir(base, { withFileTypes: true }).catch(
+        () => [],
+      ))
+        if (entry.isDirectory() && matcher.test(entry.name))
+          candidates.push(join(base, entry.name));
+    } else candidates.push(join(base, part));
+    const result: string[] = [];
+    for (const candidate of candidates) {
+      if (!(await directoryExists(candidate))) continue;
+      result.push(...(await walk(candidate, index + 1)));
+    }
+    return result;
+  };
+  return walk(root, 0);
+}
+
+async function workspacePackageRoots(root: string): Promise<string[]> {
+  const manifest = await readJson(root, "package.json");
+  const patterns = Array.isArray(manifest.workspaces)
+    ? manifest.workspaces
+    : Array.isArray(manifest.workspaces?.packages)
+      ? manifest.workspaces.packages
+      : [];
+  const roots: string[] = [];
+  for (const pattern of patterns) {
+    for (const candidate of await expandWorkspacePattern(root, pattern)) {
+      const relative = candidate.slice(root.length + 1).replaceAll("\\", "/");
+      if (!relative) continue;
+      if (await present(candidate, "package.json")) roots.push(relative);
+    }
+  }
+  return [...new Set(roots)].sort();
+}
+
+function diffPaths(diff: string): string[] {
+  return [...diff.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)].map(
+    (match) => match[2]!,
+  );
+}
+
+export async function changedWorkspacePackageRoots(
+  root: string,
+  diff: string,
+): Promise<string[]> {
+  const changed = diffPaths(diff);
+  if (!changed.length) return [];
+  return (await workspacePackageRoots(root)).filter((workspace) =>
+    changed.some((path) => path.startsWith(`${workspace}/`)),
+  );
+}
+
+export async function scopeValidationCommands(args: {
+  root: string;
+  diff: string;
+  commands: string[];
+}): Promise<string[]> {
+  const roots = await changedWorkspacePackageRoots(args.root, args.diff);
+  if (!roots.length) return args.commands;
+  return args.commands.map((command) =>
+    /^(?:npm|yarn|pnpm|bun)(?: run)? test$/.test(command.trim())
+      ? `${command} ${roots.join(" ")}`
+      : command,
+  );
+}
+
+export function serialValidationCommand(command: string): string {
+  if (
+    /(?:--runInBand|--maxWorkers|--max-workers|--no-file-parallelism)(?:\s|=|$)/.test(
+      command,
+    )
+  )
+    return command;
+  if (/\bvitest\b/.test(command)) return `${command} --maxWorkers=1`;
+  if (
+    /^(?:npm|yarn|pnpm|bun)(?: run)? test\b/.test(command.trim()) ||
+    /\bjest\b/.test(command)
+  )
+    return `${command} --runInBand`;
+  return command;
+}
+
+const infrastructureFailurePatterns = [
+  /GlobalPoolAlreadyInitialized/,
+  /global thread pool has not been initialized/i,
+  /Sandbox is not running/,
+  /Cannot connect to the Docker daemon/i,
+  /No such container/i,
+  /container .* is not running/i,
+  /JavaScript heap out of memory/i,
+  /\bexit (?:code|status) 137\b/i,
+  /\bstatus 137\b/i,
+  /OOMKilled/,
+  /docker: Error response from daemon/i,
+];
+
+export function infrastructureValidationFailure(output: string): boolean {
+  return infrastructureFailurePatterns.some((pattern) => pattern.test(output));
 }

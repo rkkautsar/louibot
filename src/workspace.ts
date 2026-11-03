@@ -78,6 +78,19 @@ export function buildShellCaptureCommand(
 
 export type SandboxNetwork = "bridge" | "none";
 
+const SANDBOX_MEMORY_MB = 2_048;
+const SANDBOX_CPUS = 2;
+const SANDBOX_PIDS_LIMIT = 256;
+
+export type SandboxSpec = {
+  image: string;
+  cpus: number;
+  memoryMb: number;
+  pidsLimit: number;
+  commandTimeoutSeconds: number;
+  network: SandboxNetwork;
+};
+
 export function cacheVolumeName(cacheKey: string): string {
   return `louibot-build-cache-${createHash("sha256")
     .update(cacheKey)
@@ -628,6 +641,25 @@ export class Sandbox {
 
   private readonly cacheVolume: string;
 
+  spec(): SandboxSpec {
+    return {
+      image: this.image,
+      cpus: SANDBOX_CPUS,
+      memoryMb: SANDBOX_MEMORY_MB,
+      pidsLimit: SANDBOX_PIDS_LIMIT,
+      commandTimeoutSeconds: this.timeoutSeconds,
+      network: this.network,
+    };
+  }
+
+  async restart(): Promise<void> {
+    if (this.started) {
+      await this.docker(["rm", "-f", this.id]).catch(() => {});
+      this.started = false;
+    }
+    await this.start();
+  }
+
   recentShellHistory(limit = 8, excerptChars = 300): string {
     return this.shellHistory
       .slice(-limit)
@@ -733,11 +765,11 @@ export class Sandbox {
         "--security-opt",
         "no-new-privileges",
         "--memory",
-        "2g",
+        `${SANDBOX_MEMORY_MB}m`,
         "--cpus",
-        "2",
+        `${SANDBOX_CPUS}`,
         "--pids-limit",
-        "256",
+        `${SANDBOX_PIDS_LIMIT}`,
         "--network",
         this.readOnly ? "none" : this.network,
       ];
