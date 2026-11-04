@@ -315,12 +315,6 @@ export function plannerSubmissionSchema(
           message: "Clarify requires at least one question",
         });
       if (value.status === "briefs") {
-        if (value.questions.length)
-          context.addIssue({
-            code: "custom",
-            path: ["questions"],
-            message: "Briefs must not include clarification questions",
-          });
         if (value.hypotheses.length !== value.hypothesisCount)
           context.addIssue({
             code: "custom",
