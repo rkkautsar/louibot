@@ -303,6 +303,13 @@ export async function runBenchmarkCase(
             {},
             30 * 60 * 1000,
           );
+        if (evaluatorPrepared)
+          await runCommand(
+            "rm -f .benchmark-runtime-started .benchmark-runtime-ready",
+            candidate,
+            {},
+            30_000,
+          );
       }
     }
     // The setup container is isolated and runs concurrently with the agent.
