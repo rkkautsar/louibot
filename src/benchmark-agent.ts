@@ -1,5 +1,5 @@
 /** Headless adapter for the real Louibot agent; no GitHub writes. */
-import { readFile, writeFile, mkdtemp } from "node:fs/promises";
+import { readFile, writeFile, mkdir, mkdtemp } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { parse } from "yaml";
 import { createHash } from "node:crypto";
@@ -34,7 +34,10 @@ async function main() {
   const seconds = Number(process.env.BENCHMARK_TIME_BUDGET_SECONDS);
   if (!Number.isFinite(seconds) || seconds <= 0)
     throw new Error("Adapter requires a positive runtime limit");
-  const stateDir = await mkdtemp(join(dirname(resultFile), "louibot-state-"));
+  const stateDir =
+    process.env.BENCHMARK_STATE_DIR ??
+    (await mkdtemp(join(dirname(resultFile), "louibot-state-")));
+  await mkdir(stateDir, { recursive: true });
   const store = new Store(stateDir);
   let input = 0,
     output = 0,

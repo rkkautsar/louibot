@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -172,15 +172,20 @@ export async function runBenchmarkCase(
   file: string,
   agentCommand: string,
   timeoutMs = 300_000,
+  resumeDirectory?: string,
 ) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
     throw new Error("Benchmark timeout must be a positive finite number");
   const value = await loadCase(file),
     id = `${safe(value.id)}-${randomUUID().slice(0, 8)}`;
   const repo = resolve(value.repositoryPath),
-    dir = join(harnessRoot, ".louibot", "benchmarks", "runs", id),
+    dir = resumeDirectory
+      ? resolve(resumeDirectory)
+      : join(harnessRoot, ".louibot", "benchmarks", "runs", id),
     candidate = join(dir, "candidate"),
     evaluator = join(dir, "evaluator");
+  if (resumeDirectory && !existsSync(candidate))
+    throw new Error(`Resume directory has no candidate checkout: ${dir}`);
   const caseStarted = Date.now();
   const planningOnlyRequested = process.env.BENCHMARK_PLANNING_ONLY === "1";
   const implementationPlanSource =
@@ -252,13 +257,19 @@ export async function runBenchmarkCase(
   let evaluationStarted: number | null = null;
   let solveSeconds: number | null = null;
   try {
-    await isolatedCheckout(repo, candidate, base);
-    checkouts.push(candidate);
-    if (!planningOnlyRequested) {
-      await isolatedCheckout(repo, evaluator, base);
-      checkouts.push(evaluator);
+    if (!resumeDirectory) {
+      await isolatedCheckout(repo, candidate, base);
+      checkouts.push(candidate);
+      if (!planningOnlyRequested) {
+        await isolatedCheckout(repo, evaluator, base);
+        checkouts.push(evaluator);
+      }
     }
-    if (!planningOnlyRequested && value.evaluator.prepareCommand) {
+    if (
+      !resumeDirectory &&
+      !planningOnlyRequested &&
+      value.evaluator.prepareCommand
+    ) {
       evaluatorSetupStarted = Date.now();
       const prepared = await runCommand(
         value.evaluator.prepareCommand,
@@ -314,6 +325,13 @@ export async function runBenchmarkCase(
     }
     // The setup container is isolated and runs concurrently with the agent.
     deadline = Date.now() + timeoutMs;
+    if (resumeDirectory)
+      await runCommand(
+        "rm -f .benchmark-runtime-started .benchmark-runtime-ready",
+        candidate,
+        {},
+        30_000,
+      );
     if (value.mode === "code-map") {
       const files = await git(candidate, ["ls-files"]);
       await writeFile(join(dir, "code-map.txt"), files);
@@ -359,7 +377,21 @@ export async function runBenchmarkCase(
               : String(tokenBudgetRemaining),
           BENCHMARK_RESULT_FILE: resultFile,
           BENCHMARK_IMPLEMENTATION_PLAN_FILE: implementationPlanFile ?? "",
-          BENCHMARK_SKIP_SETUP: evaluatorPrepared ? "1" : "",
+          BENCHMARK_SKIP_SETUP:
+            evaluatorPrepared ||
+            (resumeDirectory && existsSync(join(candidate, "node_modules")))
+              ? "1"
+              : "",
+          ...(resumeDirectory
+            ? {
+                BENCHMARK_STATE_DIR: join(
+                  dir,
+                  readdirSync(dir).find((entry) =>
+                    entry.startsWith("louibot-state-"),
+                  ) ?? "louibot-state-resume",
+                ),
+              }
+            : {}),
         },
         Math.max(1, deadline - Date.now()),
       );
@@ -681,7 +713,11 @@ export async function runBenchmarkCase(
         60_000,
       ).catch(() => {});
     }
-    for (const checkout of checkouts.reverse()) await removeTree(checkout);
+    if (!resumeDirectory)
+      for (const checkout of checkouts.reverse()) {
+        if (checkout === candidate) continue;
+        await removeTree(checkout);
+      }
   }
 }
 

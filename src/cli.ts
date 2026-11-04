@@ -76,6 +76,10 @@ benchmark
     "--implementation-plan <report.json>",
     "Continue implementation from a reviewer-approved planning benchmark report",
   )
+  .option(
+    "--resume <runDirectory>",
+    "Resume an existing benchmark run from its candidate and agent state",
+  )
   .action(async (file: string, options) => {
     validateBenchmarkOptions(options);
     if (options.planningOnly && options.implementationPlan)
@@ -96,6 +100,7 @@ benchmark
       file,
       command,
       Number(options.timeoutSeconds) * 1000,
+      options.resume ? resolve(options.resume) : undefined,
     );
     console.log(JSON.stringify(result, null, 2));
     if (!benchmarkStatusIsSuccessful(result.status)) process.exitCode = 1;
