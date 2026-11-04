@@ -730,6 +730,8 @@ export class Sandbox {
           "--read-only",
           "--cap-drop",
           "ALL",
+          "--cap-add",
+          "FOWNER",
           "--security-opt",
           "no-new-privileges",
           "--network",
