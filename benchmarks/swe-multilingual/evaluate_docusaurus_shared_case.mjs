@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -481,7 +482,8 @@ async function evaluateCandidate(instanceId, worktree = process.cwd()) {
     await run("git", ["apply", heldoutPath], { cwd: worktree });
     const prepared = await waitForPreparedContainer(worktree);
     if (!prepared) await makeCacheWritable();
-    const result = await runTests(worktree, row, logPath, !prepared);
+    const install = !prepared && !existsSync(join(worktree, "node_modules"));
+    const result = await runTests(worktree, row, logPath, install);
     const report = {
       caseId: instanceId,
       evaluationKind: "shared-runtime-task-tests",

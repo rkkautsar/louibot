@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -15,6 +15,41 @@ const removeTreeOptions = {
 
 async function removeTree(path: string) {
   await rm(path, removeTreeOptions);
+}
+
+const shellPath = (path: string) => `'${path.replaceAll("'", "'\\''")}'`;
+
+async function findPreparedCandidate(value: Case, base: string) {
+  const runs = join(harnessRoot, ".louibot", "benchmarks", "runs");
+  let best: { path: string; mtime: number } | undefined;
+  for (const entry of readdirSync(runs)) {
+    if (!entry.startsWith(`${safe(value.id)}-`)) continue;
+    const candidate = join(runs, entry, "candidate");
+    if (!existsSync(join(candidate, "node_modules"))) continue;
+    try {
+      const head = (await git(candidate, ["rev-parse", "HEAD"])).trim();
+      if (head !== base) continue;
+      const mtime = statSync(candidate).mtimeMs;
+      if (!best || mtime > best.mtime) best = { path: candidate, mtime };
+    } catch {}
+  }
+  return best?.path;
+}
+
+async function copyPreparedCheckout(
+  seed: string,
+  destination: string,
+  base: string,
+) {
+  await mkdir(destination, { recursive: true });
+  await runCommand(
+    `cp -a ${shellPath(seed)}/. ${shellPath(destination)}/`,
+    harnessRoot,
+    {},
+    30 * 60 * 1000,
+  );
+  await git(destination, ["reset", "--hard", base]);
+  await git(destination, ["clean", "-fd"]);
 }
 
 type Case = {
@@ -197,6 +232,10 @@ export async function runBenchmarkCase(
   let deadline = caseStarted + timeoutMs;
   await mkdir(dir, { recursive: true });
   const base = await git(repo, ["rev-parse", `${value.baseCommit}^{commit}`]);
+  const seed =
+    !resumeDirectory && !planningOnlyRequested
+      ? await findPreparedCandidate(value, base)
+      : undefined;
   let implementationPlanFile: string | undefined;
   if (implementationPlanSource) {
     const report = JSON.parse(
