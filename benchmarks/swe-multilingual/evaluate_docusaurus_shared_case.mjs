@@ -243,7 +243,12 @@ async function waitForPreparedContainer(worktree, timeout = 30 * 60 * 1000) {
       ["inspect", "--format", "{{.State.Running}}", name],
       { timeout: 10_000 },
     );
-    if (running.exitCode || running.stdout.trim() !== "true") return false;
+    if (running.exitCode || running.stdout.trim() !== "true") {
+      const started = await tryRun("docker", ["start", name], {
+        timeout: 10_000,
+      });
+      if (started.exitCode) return false;
+    }
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 1000));
   }
   return false;
@@ -535,6 +540,9 @@ if (args[0] === "--init-cache") {
       await readFile(join(worktree, ".benchmark-runtime-ready"), "utf8"),
     );
     console.log(JSON.stringify({ setupSeconds: (ready - started) / 1000 }));
+    // Keep the prepared filesystem, but do not idle a container for the whole
+    // agent run. Evaluation starts this container again when needed.
+    await tryRun("docker", ["stop", name], { timeout: 30_000 });
   }
 } else if (args[0] === "--cleanup") {
   await stopPreparedContainer(process.cwd());
