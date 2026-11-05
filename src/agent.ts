@@ -330,12 +330,20 @@ export function plannerSubmissionSchema(
           path: ["questions"],
           message: "Clarify requires at least one question",
         });
-      if (value.status === "fast" && !value.fastPlan)
-        context.addIssue({
-          code: "custom",
-          path: ["fastPlan"],
-          message: "Fast path requires a fastPlan",
-        });
+      if (value.status === "fast") {
+        if (!value.fastPlan)
+          context.addIssue({
+            code: "custom",
+            path: ["fastPlan"],
+            message: "Fast path requires a fastPlan",
+          });
+        if (value.questions.length)
+          context.addIssue({
+            code: "custom",
+            path: ["questions"],
+            message: "Fast path cannot carry open questions",
+          });
+      }
       if (value.status === "briefs") {
         const ids = value.hypotheses.map((hypothesis) => hypothesis.id);
         if (new Set(ids).size !== ids.length)
@@ -434,7 +442,7 @@ ${
 
 `
     : ""
-}Use status "fast" when the report names a concrete observable behavior and the likely fix is local and reversible, even if the exact implementation detail or root cause still needs source inspection. An unconfirmed implementation detail is not a reason to investigate. Use "briefs" only when there are genuinely competing causes that require evidence before a safe change, multiple independent behaviors, a product choice, a broad refactor, or security, migration, schema, or concurrency risk. When a single-behavior task can be verified with a focused test, prefer fast. Return a concise fastPlan (summary, plan, validation, reason) and no hypotheses.
+}Use status "fast" only when the change is confined to one package or one source-of-truth, has no open questions, and does not touch a public or validated contract, another package, or multiple consumers. Multi-package and contract changes must use "briefs" even when the reported behavior is narrow. An unconfirmed implementation detail is not a reason to investigate, but a cross-package scope is. Return a concise fastPlan (summary, plan, validation, reason) and no hypotheses.
 
 Otherwise return status "briefs" with a hypothesisCount from 1 to 6 and exactly that many hypothesis briefs with ids A-F. Choose the count from the distinct attack surfaces: use one brief when one cause or design constraint clearly dominates; add briefs only when the task has genuinely separable alternatives. Never split one idea into several to look thorough. For each brief state:
 - a falsifiable claim about the task (for a bug, the cause and the observation it predicts at the reported entry point; for a feature, the design direction or governing constraint and the observation that would confirm or refute it);

@@ -74,6 +74,22 @@ test("planner fast path requires a plan", () => {
     parsed.fastPlan?.reason,
     "Explicit requirement and existing coverage.",
   );
+  assert.throws(() =>
+    schema.parse({
+      status: "fast",
+      questions: [
+        {
+          id: "q1",
+          question: "Which package?",
+          assumption: "The theme package",
+          blocking: true,
+        },
+      ],
+      hypothesisCount: 1,
+      hypotheses: [],
+      fastPlan: parsed.fastPlan,
+    }),
+  );
 });
 
 test("planning evidence ledger preserves completed checks across fresh submissions", () => {
