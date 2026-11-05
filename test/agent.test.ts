@@ -35,9 +35,39 @@ import {
   normalizeReviewResult,
   normalizeWorkflowPlan,
   planningSubmissionSchema,
+  plannerSubmissionSchema,
 } from "../src/agent.js";
 
 const resultSchema = z.object({ status: z.string() });
+
+test("planner fast path requires a plan", () => {
+  const schema = plannerSubmissionSchema(6, false);
+  assert.throws(() =>
+    schema.parse({
+      status: "fast",
+      questions: [],
+      hypothesisCount: 1,
+      hypotheses: [],
+    }),
+  );
+  const parsed = schema.parse({
+    status: "fast",
+    questions: [],
+    hypothesisCount: 1,
+    hypotheses: [],
+    fastPlan: {
+      summary: "One-file CSS fix",
+      plan: "Correct the selector and add a regression assertion.",
+      validation: "Run the focused CSS test.",
+      reason: "Explicit requirement and existing coverage.",
+    },
+  });
+  assert.equal(parsed.status, "fast");
+  assert.equal(
+    parsed.fastPlan?.reason,
+    "Explicit requirement and existing coverage.",
+  );
+});
 
 test("planning evidence ledger preserves completed checks across fresh submissions", () => {
   const merged = mergePlanningEvidenceLedger(

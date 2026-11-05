@@ -288,6 +288,13 @@ const hypothesisSchema = z.object({
   weakens: z.string().min(1).max(500).optional(),
 });
 
+const fastPlanSchema = z.object({
+  summary: z.string().min(1).max(1_200),
+  plan: z.string().min(1).max(2_000),
+  validation: z.string().min(1).max(1_200),
+  reason: z.string().min(1).max(600),
+});
+
 const plannerQuestionSchema = z.object({
   id: z.string().min(1).max(8),
   question: z.string().min(1).max(800),
@@ -301,8 +308,9 @@ export function plannerSubmissionSchema(
 ) {
   return z
     .object({
-      status: z.enum(["clarify", "briefs"]),
+      status: z.enum(["clarify", "fast", "briefs"]),
       questions: z.array(plannerQuestionSchema).max(5).default([]),
+      fastPlan: fastPlanSchema.optional(),
       hypothesisCount: z.number().int().min(1).max(maxHypotheses).default(1),
       hypotheses: z
         .array(hypothesisSchema.extend({ id: z.string().regex(/^[A-F]$/) }))
@@ -321,6 +329,12 @@ export function plannerSubmissionSchema(
           code: "custom",
           path: ["questions"],
           message: "Clarify requires at least one question",
+        });
+      if (value.status === "fast" && !value.fastPlan)
+        context.addIssue({
+          code: "custom",
+          path: ["fastPlan"],
+          message: "Fast path requires a fastPlan",
         });
       if (value.status === "briefs") {
         const ids = value.hypotheses.map((hypothesis) => hypothesis.id);
@@ -420,11 +434,13 @@ ${
 
 `
     : ""
-}Return status "briefs" with a hypothesisCount from 1 to 6 and exactly that many hypothesis briefs with ids A-F. Choose the count from the distinct attack surfaces: use one brief when one cause or design constraint clearly dominates; add briefs only when the task has genuinely separable alternatives. Never split one idea into several to look thorough. For each brief state:
+}If the task is unambiguously simple and low-risk — explicit requirements, one or two files, no open product choice, existing tests, and no security, migration, schema, or concurrency risk — return status "fast" with a concise fastPlan (summary, plan, validation, reason) and no hypotheses. Do not use fast when evidence or scope is uncertain.
+
+Otherwise return status "briefs" with a hypothesisCount from 1 to 6 and exactly that many hypothesis briefs with ids A-F. Choose the count from the distinct attack surfaces: use one brief when one cause or design constraint clearly dominates; add briefs only when the task has genuinely separable alternatives. Never split one idea into several to look thorough. For each brief state:
 - a falsifiable claim about the task (for a bug, the cause and the observation it predicts at the reported entry point; for a feature, the design direction or governing constraint and the observation that would confirm or refute it);
 - the smallest check that distinguishes it from the other briefs;
 - the result that would weaken it.
-Briefs must be settled by different checks; merge any that share one. Do not inspect the repository and do not propose a final change in this phase.`;
+Briefs must be settled by different checks; merge any that share one. Do not inspect the repository in either mode. Briefs must not propose a final change; a fastPlan may propose a concise change from the issue text alone.`;
 
 const investigatorPrompt = (
   hypothesis: z.infer<typeof hypothesisSchema>,
@@ -2236,6 +2252,7 @@ export async function code(
           synthesis: WorkflowPlan;
         }
       | undefined;
+    let fastPath = false;
 
     if (options.planningOnly)
       return await runPlanningOnlyWorkflow({
@@ -2360,174 +2377,186 @@ export async function code(
         } as unknown as Result;
       store.log(job.issue, "workflow.hypotheses", hypotheses);
 
-      const investigatorModel = createRunModel(
-        undefined,
-        undefined,
-        config.reviewer.pairedWorkflow.investigatorReasoningEffort,
-      );
-      const investigationResults = await Promise.allSettled(
-        hypotheses.hypotheses.map(async (hypothesis) => {
-          const scratchDir = `/tmp/louibot-investigation-${randomUUID()}`;
-          const investigator = createAgent({
-            model: investigatorModel,
-            systemPrompt: investigatorPrompt(hypothesis, scratchDir),
-            responseFormat: toolStrategy(investigationFindingSchema),
-            tools: [
-              tool(
-                async ({ command }: { command: string }) => {
-                  if (investigationRemaining <= 0)
-                    return "The shared investigation command budget is exhausted. Return the structured finding from the evidence already gathered.";
-                  investigationRemaining--;
-                  return sandbox.shell(command, signal);
-                },
-                {
-                  name: "shell",
-                  description:
-                    "Inspect the shared workspace read-only with short, targeted commands; use only the assigned scratch directory for temporary artifacts.",
-                  schema: z.object({ command: pairedReviewShellCommand }),
-                },
+      if (hypotheses.status === "fast") {
+        const fastPlan = hypotheses.fastPlan!;
+        fastPath = true;
+        store.log(job.issue, "workflow.fast_path", fastPlan);
+        implementationMessage = JSON.stringify({
+          task: JSON.parse(taskMessage.content),
+          fastPlan,
+          instruction:
+            "The planner selected the fast path because this task is unambiguous and low-risk. Do not run investigations. Inspect the repository, implement the plan, add a focused reported-path regression test where feasible, run the validation, and report actual results.",
+        });
+      } else {
+        const investigatorModel = createRunModel(
+          undefined,
+          undefined,
+          config.reviewer.pairedWorkflow.investigatorReasoningEffort,
+        );
+        const investigationResults = await Promise.allSettled(
+          hypotheses.hypotheses.map(async (hypothesis) => {
+            const scratchDir = `/tmp/louibot-investigation-${randomUUID()}`;
+            const investigator = createAgent({
+              model: investigatorModel,
+              systemPrompt: investigatorPrompt(hypothesis, scratchDir),
+              responseFormat: toolStrategy(investigationFindingSchema),
+              tools: [
+                tool(
+                  async ({ command }: { command: string }) => {
+                    if (investigationRemaining <= 0)
+                      return "The shared investigation command budget is exhausted. Return the structured finding from the evidence already gathered.";
+                    investigationRemaining--;
+                    return sandbox.shell(command, signal);
+                  },
+                  {
+                    name: "shell",
+                    description:
+                      "Inspect the shared workspace read-only with short, targeted commands; use only the assigned scratch directory for temporary artifacts.",
+                    schema: z.object({ command: pairedReviewShellCommand }),
+                  },
+                ),
+              ],
+              middleware: [
+                budgetMiddleware(config, job, store, signal, "investigator", {
+                  input: config.agent.inputUsdPerMillion,
+                  output: config.agent.outputUsdPerMillion,
+                }),
+              ],
+              checkpointer: SqliteSaver.fromConnString(
+                `${store.dir}/workflow-investigation-${hypothesis.id}.sqlite`,
               ),
-            ],
-            middleware: [
-              budgetMiddleware(config, job, store, signal, "investigator", {
-                input: config.agent.inputUsdPerMillion,
-                output: config.agent.outputUsdPerMillion,
-              }),
-            ],
-            checkpointer: SqliteSaver.fromConnString(
-              `${store.dir}/workflow-investigation-${hypothesis.id}.sqlite`,
-            ),
-          });
-          const finding = await invokeWithCompletionRecovery(
-            () =>
-              invokeWithMalformedToolCallRecovery(
-                (recovery) =>
-                  investigator.invoke(
-                    {
-                      messages: [
-                        {
-                          role: "user" as const,
-                          content: `Original task:\n${taskMessage.content}${recovery ? "\nThe previous response was malformed; return one concise valid finding." : ""}`,
-                        },
-                      ],
-                    },
-                    {
-                      configurable: {
-                        thread_id: `${workflowThread}-investigation-${hypothesis.id}`,
+            });
+            const finding = await invokeWithCompletionRecovery(
+              () =>
+                invokeWithMalformedToolCallRecovery(
+                  (recovery) =>
+                    investigator.invoke(
+                      {
+                        messages: [
+                          {
+                            role: "user" as const,
+                            content: `Original task:\n${taskMessage.content}${recovery ? "\nThe previous response was malformed; return one concise valid finding." : ""}`,
+                          },
+                        ],
                       },
-                      recursionLimit: implementationRecursionLimit(
-                        Math.max(1, Math.ceil(investigationBudget / 2)),
-                      ),
-                      signal,
+                      {
+                        configurable: {
+                          thread_id: `${workflowThread}-investigation-${hypothesis.id}`,
+                        },
+                        recursionLimit: implementationRecursionLimit(
+                          Math.max(1, Math.ceil(investigationBudget / 2)),
+                        ),
+                        signal,
+                      },
+                    ),
+                  (out) =>
+                    parseAgentResponse(
+                      out.structuredResponse,
+                      out.messages,
+                      investigationFindingSchema,
+                      config.agent.maxOutputTokens,
+                    ),
+                ),
+              config.agent.modelMaxRetries,
+            );
+            if (finding.hypothesisId !== hypothesis.id)
+              throw new Error(
+                `Investigator ${hypothesis.id} returned findings for ${finding.hypothesisId}`,
+              );
+            return finding;
+          }),
+        );
+        const investigations = investigationResults.map((settled, index) => {
+          const hypothesis = hypotheses.hypotheses[index]!;
+          if (settled.status === "fulfilled") return settled.value;
+          store.log(job.issue, "workflow.investigation.failed", {
+            hypothesisId: hypothesis.id,
+            error: String(settled.reason).slice(0, 1_000),
+          });
+          return {
+            hypothesisId: hypothesis.id,
+            status: "inconclusive" as const,
+            conclusion: `The investigation did not complete: ${String(settled.reason).slice(0, 500)}`,
+            evidence: [],
+            contraryEvidence: [],
+            unresolvedBoundary:
+              "The controller recorded an investigator failure; treat this hypothesis as untested.",
+          };
+        });
+        store.log(job.issue, "workflow.investigations", investigations);
+
+        const synthesizer = createAgent({
+          model: createRunModel(
+            config.reviewer.pairedWorkflow.plannerModel,
+            config.reviewer.pairedWorkflow.plannerApiFormat,
+          ),
+          systemPrompt: synthesisPrompt,
+          responseFormat: toolStrategy(workflowPlanSchema),
+          tools: [],
+          middleware: [
+            budgetMiddleware(config, job, store, signal, "synthesis", {
+              input:
+                config.reviewer.pairedWorkflow.plannerInputUsdPerMillion ??
+                config.agent.inputUsdPerMillion,
+              output:
+                config.reviewer.pairedWorkflow.plannerOutputUsdPerMillion ??
+                config.agent.outputUsdPerMillion,
+            }),
+          ],
+          checkpointer: SqliteSaver.fromConnString(
+            `${store.dir}/workflow-synthesis.sqlite`,
+          ),
+        });
+        let synthesisMalformedRecoveries = 0;
+        const synthesis = await invokeWithCompletionRecovery(
+          () =>
+            invokeWithMalformedToolCallRecovery(
+              (recovery) =>
+                synthesizer.invoke(
+                  {
+                    messages: [
+                      {
+                        role: "user" as const,
+                        content: `Original task:\n${taskMessage.content}\n\nHypotheses:\n${JSON.stringify(hypotheses.hypotheses)}\n\nIndependent investigation findings:\n${JSON.stringify(investigations)}${recovery ? "\nThe previous response was malformed; return one concise valid plan." : ""}`,
+                      },
+                    ],
+                  },
+                  {
+                    configurable: {
+                      thread_id: recovery
+                        ? `${workflowThread}-synthesis-malformed-recovery-${++synthesisMalformedRecoveries}`
+                        : `${workflowThread}-synthesis`,
                     },
-                  ),
-                (out) =>
+                    recursionLimit: 12,
+                    signal,
+                  },
+                ),
+              (out) =>
+                normalizeWorkflowPlan(
                   parseAgentResponse(
                     out.structuredResponse,
                     out.messages,
-                    investigationFindingSchema,
+                    workflowPlanSchema,
                     config.agent.maxOutputTokens,
                   ),
-              ),
-            config.agent.modelMaxRetries,
-          );
-          if (finding.hypothesisId !== hypothesis.id)
-            throw new Error(
-              `Investigator ${hypothesis.id} returned findings for ${finding.hypothesisId}`,
-            );
-          return finding;
-        }),
-      );
-      const investigations = investigationResults.map((settled, index) => {
-        const hypothesis = hypotheses.hypotheses[index]!;
-        if (settled.status === "fulfilled") return settled.value;
-        store.log(job.issue, "workflow.investigation.failed", {
-          hypothesisId: hypothesis.id,
-          error: String(settled.reason).slice(0, 1_000),
-        });
-        return {
-          hypothesisId: hypothesis.id,
-          status: "inconclusive" as const,
-          conclusion: `The investigation did not complete: ${String(settled.reason).slice(0, 500)}`,
-          evidence: [],
-          contraryEvidence: [],
-          unresolvedBoundary:
-            "The controller recorded an investigator failure; treat this hypothesis as untested.",
-        };
-      });
-      store.log(job.issue, "workflow.investigations", investigations);
-
-      const synthesizer = createAgent({
-        model: createRunModel(
-          config.reviewer.pairedWorkflow.plannerModel,
-          config.reviewer.pairedWorkflow.plannerApiFormat,
-        ),
-        systemPrompt: synthesisPrompt,
-        responseFormat: toolStrategy(workflowPlanSchema),
-        tools: [],
-        middleware: [
-          budgetMiddleware(config, job, store, signal, "synthesis", {
-            input:
-              config.reviewer.pairedWorkflow.plannerInputUsdPerMillion ??
-              config.agent.inputUsdPerMillion,
-            output:
-              config.reviewer.pairedWorkflow.plannerOutputUsdPerMillion ??
-              config.agent.outputUsdPerMillion,
-          }),
-        ],
-        checkpointer: SqliteSaver.fromConnString(
-          `${store.dir}/workflow-synthesis.sqlite`,
-        ),
-      });
-      let synthesisMalformedRecoveries = 0;
-      const synthesis = await invokeWithCompletionRecovery(
-        () =>
-          invokeWithMalformedToolCallRecovery(
-            (recovery) =>
-              synthesizer.invoke(
-                {
-                  messages: [
-                    {
-                      role: "user" as const,
-                      content: `Original task:\n${taskMessage.content}\n\nHypotheses:\n${JSON.stringify(hypotheses.hypotheses)}\n\nIndependent investigation findings:\n${JSON.stringify(investigations)}${recovery ? "\nThe previous response was malformed; return one concise valid plan." : ""}`,
-                    },
-                  ],
-                },
-                {
-                  configurable: {
-                    thread_id: recovery
-                      ? `${workflowThread}-synthesis-malformed-recovery-${++synthesisMalformedRecoveries}`
-                      : `${workflowThread}-synthesis`,
-                  },
-                  recursionLimit: 12,
-                  signal,
-                },
-              ),
-            (out) =>
-              normalizeWorkflowPlan(
-                parseAgentResponse(
-                  out.structuredResponse,
-                  out.messages,
-                  workflowPlanSchema,
                   config.agent.maxOutputTokens,
                 ),
-                config.agent.maxOutputTokens,
-              ),
-          ),
-        config.agent.modelMaxRetries,
-      );
-      store.log(job.issue, "workflow.synthesis", synthesis);
-      workflowHandoff = {
-        hypotheses: hypotheses.hypotheses,
-        investigations,
-        synthesis,
-      };
-      implementationMessage = JSON.stringify({
-        task: JSON.parse(taskMessage.content),
-        planner: workflowHandoff,
-        instruction:
-          "Continue from the planner's synthesized root cause and plan. Treat the hypothesis reports and synthesis as evidence-backed guidance, not unquestionable truth: verify relevant source while implementing, preserve all reported behaviors, and revise the plan if new evidence contradicts it. Make a focused non-test source change, add a reported-path regression test when feasible, run relevant checks, and report actual results.",
-      });
+            ),
+          config.agent.modelMaxRetries,
+        );
+        store.log(job.issue, "workflow.synthesis", synthesis);
+        workflowHandoff = {
+          hypotheses: hypotheses.hypotheses,
+          investigations,
+          synthesis,
+        };
+        implementationMessage = JSON.stringify({
+          task: JSON.parse(taskMessage.content),
+          planner: workflowHandoff,
+          instruction:
+            "Continue from the planner's synthesized root cause and plan. Treat the hypothesis reports and synthesis as evidence-backed guidance, not unquestionable truth: verify relevant source while implementing, preserve all reported behaviors, and revise the plan if new evidence contradicts it. Make a focused non-test source change, add a reported-path regression test when feasible, run relevant checks, and report actual results.",
+        });
+      }
     }
     let implementationInvocations = 0;
     const invokeImplementation = (
@@ -3032,7 +3061,9 @@ export async function code(
         config.reviewer.inputUsdPerMillion ?? config.agent.inputUsdPerMillion;
       const reviewerOutputRate =
         config.reviewer.outputUsdPerMillion ?? config.agent.outputUsdPerMillion;
-      const maxRounds = config.reviewer.pairedWorkflow.maxImplementationReviews;
+      const maxRounds = fastPath
+        ? 2
+        : config.reviewer.pairedWorkflow.maxImplementationReviews;
       let approved = false;
       let reviewedRounds = 0;
       let reviewSkipped = false;
