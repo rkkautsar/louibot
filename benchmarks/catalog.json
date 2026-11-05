@@ -62,6 +62,18 @@
         "independent interaction evaluator",
         "human-reviewed outcomes"
       ]
+    },
+    {
+      "id": "swe-multilingual-preact",
+      "targetCases": 4,
+      "readyCases": 0,
+      "status": "selection-frozen-not-prepared",
+      "source": "SWE-bench Multilingual test split; four Preact instances mixing bug fixes and feature implementation",
+      "requires": [
+        "local Preact checkout containing all four pinned base commits",
+        "one pinned Node runtime and dependency setup shared across the four tasks",
+        "host-side private dataset and independent task-test evaluator"
+      ]
     }
   ]
 }

@@ -179,3 +179,33 @@ Both Louibot and Mini-SWE-Agent used `deepseek/deepseek-v4.1-flash` with high re
 | Mean cost per solved task       | $0.226  | $0.120   |
 
 Both solve-time columns run from environment setup through patch capture and exclude hidden-test grading. The 8927 Louibot row is from the 2026-11-04 run; Mini-SWE rows are the 2026-11-04 high-reasoning run.
+
+### Preact four-case comparison
+
+Four pinned Preact tasks from SWE-bench Multilingual, mixing two bug fixes and two feature implementations. Both agents used `deepseek/deepseek-v4.1-flash` with high reasoning; Louibot ran its paired planner/investigator/implementer/reviewer workflow, while Mini-SWE-Agent ran a single agent. Official SWE-bench per-instance images provide the checkout and dependencies.
+
+| Task  | Type    | Louibot | Louibot time | Louibot cost | Mini-SWE | Mini-SWE time | Mini-SWE cost |
+| ----- | ------- | ------- | ------------ | ------------ | -------- | ------------- | ------------- |
+| 2757  | bug     | pass    | 10m28s       | $0.414       | pass     | 2m29s         | $0.080        |
+| 3454  | bug     | pass    | 7m09s        | $0.181       | pass     | 1m09s         | $0.018        |
+| 3010  | feature | pass    | 13m32s       | $0.423       | pass     | 2m29s         | $0.127        |
+| 4436  | feature | pass    | 25m42s       | $1.522       | fail     | 28m07s        | $1.670        |
+
+Louibot is **4/4** on hidden tests; Mini-SWE is **3/4**. Mini-SWE failed 4436 on both ref-cleanup tests. Louibot's 4436 hidden tests passed and its implementation reviewer approved the patch in one round.
+
+The first Mini-SWE pass was invalid: the eval script was missing from `/tmp`, so hidden tests never ran. The fixed runner copies the script to `/root`, verifies it exists, excludes `package-lock.json` and `patch.txt` from the candidate patch, uses the shipped Mini-SWE prompt, and runs with a 120-step/$3 cap and 600-second commands.
+
+Both agents used the same official SWE-bench Preact image set for their respective commits. This is a workflow-level comparison, not a model-quality comparison: both used DeepSeek V4.1 Flash high reasoning. Louibot ran the paired planner/investigator/implementer/reviewer workflow with a $6.00 cap.
+
+### Additional Preact tasks
+
+SWE-bench Multilingual contains 17 Preact instances. The 13 beyond the original four are listed in `benchmarks/swe-multilingual/preact-new-selection.json`, and their dataset rows were added to the frozen dataset.
+
+Running Mini-SWE in version order until the first failure stopped at **preact-2896**:
+
+| Task | Mini-SWE | Louibot |
+| --- | --- | --- |
+| 2896 | fail: missing `should not unnecessarily reorder children #2895`; 30m05s; $0.281; 459-byte patch | **pass**; 24m55s; $1.091; 171 tool calls; review approved |
+| 3567 | fail: missing `should not schedule effects that have no change`; 54m43s; $0.259; 1857-byte patch | not run |
+
+Louibot's first 2896 attempt exhausted its 80-command budget, and a retry hit planner schema validation because the planner output was truncated at 32k tokens. Raising `maxOutputTokens` to 64k fixed the planner failure; the next run passed both hidden tests.

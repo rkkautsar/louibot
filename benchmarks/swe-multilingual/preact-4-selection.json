@@ -1,0 +1,50 @@
+{
+  "dataset": "SWE-bench/SWE-bench_Multilingual",
+  "datasetRevision": "846e647b9f33c0b51b739d005d13d85493c9af09",
+  "split": "test",
+  "repository": "preactjs/preact",
+  "language": "JavaScript/TypeScript",
+  "selection": "Four pinned Preact instances from the SWE-bench Multilingual test split, mixing two bug fixes with two feature implementations. Selection is frozen before any Louibot or Mini-SWE-Agent run; no model outcome or reference patch was used.",
+  "instances": [
+    {
+      "id": "preactjs__preact-2757",
+      "title": "Setting the value of a progress element to 0 removes the attribute",
+      "kind": "bug",
+      "createdAt": "2020-09-19 09:38:08",
+      "baseCommit": "b17a932342bfdeeaf1dc0fbe4f436c83e258d6c8",
+      "version": "2757",
+      "failToPassCount": 1,
+      "passToPassCount": 62
+    },
+    {
+      "id": "preactjs__preact-3454",
+      "title": "Incorrect translation of xlink:href attribute -> hhref",
+      "kind": "bug",
+      "createdAt": "2022-02-15 22:06:30",
+      "baseCommit": "00c8d1ff1498084c15408cf0014d4c7facdb5dd7",
+      "version": "3454",
+      "failToPassCount": 1,
+      "passToPassCount": 10
+    },
+    {
+      "id": "preactjs__preact-3010",
+      "title": "Add support for bigint.",
+      "kind": "feature",
+      "createdAt": "2021-02-13 09:24:22",
+      "baseCommit": "c12331064f4ea967641cd5e419204422af050fbb",
+      "version": "3010",
+      "failToPassCount": 1,
+      "passToPassCount": 65
+    },
+    {
+      "id": "preactjs__preact-4436",
+      "title": "Support cleanup functions for refs",
+      "kind": "feature",
+      "createdAt": "2024-07-06 22:32:36",
+      "baseCommit": "db0f4f2e7a2338ea40050f623f05505a798fc1a4",
+      "version": "4436",
+      "failToPassCount": 2,
+      "passToPassCount": 24
+    }
+  ]
+}

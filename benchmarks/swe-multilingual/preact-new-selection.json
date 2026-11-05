@@ -1,0 +1,140 @@
+{
+  "dataset": "SWE-bench/SWE-bench_Multilingual",
+  "datasetRevision": "846e647b9f33c0b51b739d005d13d85493c9af09",
+  "split": "test",
+  "repository": "preactjs/preact",
+  "language": "JavaScript/TypeScript",
+  "selection": "New Preact instances from the SWE-bench Multilingual test split, excluding the original four-case selection.",
+  "instances": [
+    {
+      "id": "preactjs__preact-2896",
+      "title": "Child order is not maintained between re-renders, when using compat memo",
+      "kind": "task",
+      "createdAt": "2021-01-01 02:27:31",
+      "baseCommit": "a9f7e676dc03b5008b8483e0937fc27c1af8287f",
+      "version": "2896",
+      "failToPassCount": 1,
+      "passToPassCount": 8
+    },
+    {
+      "id": "preactjs__preact-2927",
+      "title": "element with `contentEditable=undefined` crashes in Preact but not React",
+      "kind": "task",
+      "createdAt": "2021-01-14 10:31:20",
+      "baseCommit": "ee76c1eb169897412501d86fbe40122b34cd2e8d",
+      "version": "2927",
+      "failToPassCount": 1,
+      "passToPassCount": 63
+    },
+    {
+      "id": "preactjs__preact-3062",
+      "title": "\"tabIndex\" attribute is set to \"0\" instead of being removed",
+      "kind": "task",
+      "createdAt": "2021-03-14 11:17:30",
+      "baseCommit": "7556b61bd0d9f72bbd906c3abaebf2b1c9aeacbf",
+      "version": "3062",
+      "failToPassCount": 1,
+      "passToPassCount": 66
+    },
+    {
+      "id": "preactjs__preact-3345",
+      "title": "Component unmount fails when exception is thrown from effect cleanup function.",
+      "kind": "task",
+      "createdAt": "2021-11-26 00:15:46",
+      "baseCommit": "e0e17046753fe09881dfb8d5a69b44933d1fa1ea",
+      "version": "3345",
+      "failToPassCount": 1,
+      "passToPassCount": 16
+    },
+    {
+      "id": "preactjs__preact-3562",
+      "title": "onInput and onChange doesn't work together since v10.5.0",
+      "kind": "task",
+      "createdAt": "2022-06-12 07:25:18",
+      "baseCommit": "0b9a9275b47e446106e6e97c78011896f7db2a61",
+      "version": "3562",
+      "failToPassCount": 1,
+      "passToPassCount": 31
+    },
+    {
+      "id": "preactjs__preact-3567",
+      "title": "New state-settling logic causes hooks + cleanup to fire unexpectedly",
+      "kind": "task",
+      "createdAt": "2022-06-14 14:44:56",
+      "baseCommit": "c77e6284c199761d59467d8cc596a2f03540e72c",
+      "version": "3567",
+      "failToPassCount": 1,
+      "passToPassCount": 20
+    },
+    {
+      "id": "preactjs__preact-3689",
+      "title": "support errorInfo in useErrorBoundary",
+      "kind": "task",
+      "createdAt": "2022-08-21 05:51:04",
+      "baseCommit": "9457b221fdacd1052ffdb385918e1bab4b10e833",
+      "version": "3689",
+      "failToPassCount": 1,
+      "passToPassCount": 3
+    },
+    {
+      "id": "preactjs__preact-3739",
+      "title": "Setting state then undoing it on the same tick causes prop-based updates also on that same tick to be discarded",
+      "kind": "task",
+      "createdAt": "2022-09-19 13:54:47",
+      "baseCommit": "2cafedee2ddf7c73795e887ef1970df4be2bca90",
+      "version": "3739",
+      "failToPassCount": 1,
+      "passToPassCount": 12
+    },
+    {
+      "id": "preactjs__preact-3763",
+      "title": "setState callback is not executed when working with subscriptions on behaviorsubjects/observables",
+      "kind": "task",
+      "createdAt": "2022-10-11 15:34:50",
+      "baseCommit": "e968a5a4000dfa9bec7e8d7b26543b23def6d29d",
+      "version": "3763",
+      "failToPassCount": 1,
+      "passToPassCount": 1
+    },
+    {
+      "id": "preactjs__preact-4152",
+      "title": "<div>{ new String('hi') }</div> renders blank",
+      "kind": "task",
+      "createdAt": "2023-10-04 16:50:46",
+      "baseCommit": "9c5a82efcc3dcbd0035c694817a3022d81264687",
+      "version": "4152",
+      "failToPassCount": 1,
+      "passToPassCount": 75
+    },
+    {
+      "id": "preactjs__preact-4182",
+      "title": "useErrorBoundary causes double rendering of list item",
+      "kind": "task",
+      "createdAt": "2023-10-31 07:57:20",
+      "baseCommit": "66cb6a78776b263a2fe4d1283426e699961095d2",
+      "version": "4182",
+      "failToPassCount": 1,
+      "passToPassCount": 5
+    },
+    {
+      "id": "preactjs__preact-4245",
+      "title": "`useId` generates duplicate identifiers in some cases when calling `render` from `@preact/compat` multiple times",
+      "kind": "task",
+      "createdAt": "2023-12-31 06:31:48",
+      "baseCommit": "13b0afb7a28adb3149d7125fb2b9c16edbcf8e94",
+      "version": "4245",
+      "failToPassCount": 1,
+      "passToPassCount": 12
+    },
+    {
+      "id": "preactjs__preact-4316",
+      "title": "onFocusIn and onFocusOut events incorrectly set",
+      "kind": "task",
+      "createdAt": "2024-03-21 11:31:39",
+      "baseCommit": "b820d8b73eade8bc5b3fbf7e5fe0dd5150de80e2",
+      "version": "4316",
+      "failToPassCount": 1,
+      "passToPassCount": 10
+    }
+  ]
+}
