@@ -2387,7 +2387,7 @@ export async function code(
           task: JSON.parse(taskMessage.content),
           fastPlan,
           instruction:
-            "The planner selected the fast path because this task is unambiguous and low-risk. Do not run investigations. Inspect the repository, implement the plan, add a focused reported-path regression test where feasible, run the validation, and report actual results.",
+            "The planner selected the fast path because this task is unambiguous and low-risk. Do not run investigations. Inspect only the relevant files, make one focused source change, add a focused reported-path regression test where feasible, and run only the narrowest relevant test. Do not run full test suites or builds unless the focused test cannot run; if you must, explain why. Before returning done, do a quick self-review of the diff for missed requirements and regressions, then report actual results.",
         });
       } else {
         const investigatorModel = createRunModel(
@@ -3056,6 +3056,7 @@ export async function code(
     if (
       result.status === "done" &&
       config.reviewer.pairedWorkflow.enabled &&
+      !fastPath &&
       !options.approvedPlan
     ) {
       const reviewerModel = config.reviewer.model ?? config.model;
