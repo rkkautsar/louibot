@@ -134,9 +134,70 @@ async function main() {
   let result: Record<string, unknown>;
   try {
     const planningOnly = process.env.BENCHMARK_PLANNING_ONLY === "1";
+    const hiddenPatchFile = process.env.BENCHMARK_HIDDEN_TEST_PATCH_FILE;
+    const hiddenPatch = hiddenPatchFile
+      ? await readFile(hiddenPatchFile, "utf8")
+      : undefined;
+    const hiddenCommands = process.env.BENCHMARK_HIDDEN_TEST_COMMANDS;
+    const benchmarkGrade =
+      hiddenPatch && hiddenCommands
+        ? async (sandbox: import("./workspace.js").Sandbox) => {
+            const patchPaths = [
+              ...hiddenPatch.matchAll(/^diff --git a\/(.+?) b\//gm),
+            ].map((match) => match[1]);
+            const reset = patchPaths
+              .map(
+                (path) =>
+                  `git checkout -- '${path.replaceAll("'", "'\\''")}' 2>/dev/null || true`,
+              )
+              .join("; ");
+            const command = (
+              JSON.parse(hiddenCommands) as { commands: string[] }
+            ).commands[0]!;
+            let stdout = "";
+            let stderr = "";
+            let exitCode = 0;
+            let applied = false;
+            try {
+              if (controller.signal.aborted)
+                throw new Error("Benchmark time budget exhausted");
+              try {
+                await sandbox.shell("true", controller.signal);
+              } catch {
+                await sandbox.restart();
+              }
+              const encoded = Buffer.from(hiddenPatch, "utf8").toString(
+                "base64",
+              );
+              await sandbox.shell(
+                `printf %s '${encoded}' | base64 -d > /tmp/hidden-tests.patch`,
+                controller.signal,
+              );
+              await sandbox.shell(
+                `${reset}; git apply /tmp/hidden-tests.patch`,
+                controller.signal,
+              );
+              applied = true;
+              stdout = await sandbox.shell(command, controller.signal);
+            } catch (error) {
+              exitCode = 1;
+              stderr = String(error);
+            } finally {
+              if (applied)
+                await sandbox
+                  .shell(
+                    "git apply -R /tmp/hidden-tests.patch 2>/dev/null || true",
+                    controller.signal,
+                  )
+                  .catch(() => {});
+            }
+            return { command, exitCode, stdout, stderr };
+          }
+        : undefined;
     const response = await code(measuredConfig, job, store, controller.signal, {
       planningOnly,
       approvedPlan,
+      benchmarkGrade,
     });
     result = {
       action: response.planningOnly
@@ -163,6 +224,7 @@ async function main() {
       implementationReviewApproved: response.implementationReviewApproved,
       implementationReviewRounds: response.implementationReviewRounds,
       implementationReviewThreads: response.implementationReviewThreads,
+      benchmarkGrade: response.benchmarkGrade,
       status: "completed",
     };
   } catch (error) {

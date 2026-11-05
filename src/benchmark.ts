@@ -89,15 +89,25 @@ const runCommand = async (
   cwd: string,
   env: NodeJS.ProcessEnv = {},
   timeoutMs = 300_000,
-) =>
-  new Promise<{ code: number; stdout: string; stderr: string }>(
+) => {
+  if (!existsSync(cwd))
+    return {
+      code: 1,
+      stdout: "",
+      stderr: `Benchmark command cwd does not exist: ${cwd}`,
+    };
+  return new Promise<{ code: number; stdout: string; stderr: string }>(
     (resolvePromise, reject) => {
-      const child = spawn("sh", ["-lc", command], {
-        cwd,
-        env: { ...process.env, ...env },
-        detached: process.platform !== "win32",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+      const child = spawn(
+        process.platform === "win32" ? "sh" : "/bin/sh",
+        ["-lc", command],
+        {
+          cwd,
+          env: { ...process.env, ...env },
+          detached: process.platform !== "win32",
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
       let stdout = "",
         stderr = "";
       const outputCap = 200_000;
@@ -117,6 +127,7 @@ const runCommand = async (
       });
     },
   );
+};
 const git = async (cwd: string, args: string[]) => {
   const result = await runCommand(
     `git ${args.map((arg) => `'${arg.replaceAll("'", "'\\''")}'`).join(" ")}`,
@@ -236,6 +247,25 @@ export async function runBenchmarkCase(
     !resumeDirectory && !planningOnlyRequested
       ? await findPreparedCandidate(value, base)
       : undefined;
+  let hidden:
+    { patch: string; commands: string[]; patchFile: string } | undefined;
+  if (!planningOnlyRequested && value.evaluator.commands[0]) {
+    const emitted = await runCommand(
+      `${value.evaluator.commands[0]} --emit`,
+      harnessRoot,
+      { BENCHMARK_CASE_ID: value.instanceId ?? value.id },
+      60_000,
+    );
+    if (!emitted.code) {
+      const parsed = JSON.parse(emitted.stdout) as {
+        patch: string;
+        commands: string[];
+      };
+      const patchFile = join(dir, ".hidden-tests.patch");
+      await writeFile(patchFile, parsed.patch);
+      hidden = { ...parsed, patchFile };
+    }
+  }
   let implementationPlanFile: string | undefined;
   if (implementationPlanSource) {
     const report = JSON.parse(
@@ -416,6 +446,10 @@ export async function runBenchmarkCase(
               : String(tokenBudgetRemaining),
           BENCHMARK_RESULT_FILE: resultFile,
           BENCHMARK_IMPLEMENTATION_PLAN_FILE: implementationPlanFile ?? "",
+          BENCHMARK_HIDDEN_TEST_PATCH_FILE: hidden?.patchFile ?? "",
+          BENCHMARK_HIDDEN_TEST_COMMANDS: hidden
+            ? JSON.stringify({ commands: hidden.commands })
+            : "",
           BENCHMARK_SKIP_SETUP:
             evaluatorPrepared ||
             (resumeDirectory && existsSync(join(candidate, "node_modules")))
@@ -565,17 +599,27 @@ export async function runBenchmarkCase(
     }
     // Apply from a fresh evaluator checkout; only the patch and visible base reach it.
     const patchPath = join(dir, "candidate.patch");
-    const apply = planningOnlyRequested
-      ? { code: 0, stdout: "", stderr: "" }
-      : patch
-        ? await runCommand(
-            `git apply '${patchPath.replaceAll("'", "'\\''")}'`,
-            evaluator,
-          )
-        : { code: 0, stdout: "", stderr: "" };
-    const results = [];
+    const benchmarkGrade = adapterResult.benchmarkGrade as
+      | { command: string; exitCode: number; stdout: string; stderr: string }
+      | undefined;
+    const apply =
+      planningOnlyRequested || hidden || benchmarkGrade
+        ? { code: 0, stdout: "", stderr: "" }
+        : patch
+          ? await runCommand(
+              `git apply '${patchPath.replaceAll("'", "'\\''")}'`,
+              evaluator,
+            )
+          : { code: 0, stdout: "", stderr: "" };
+    const results = benchmarkGrade ? [benchmarkGrade] : [];
     if (!planningOnlyRequested) evaluationStarted = Date.now();
-    if (!planningOnlyRequested && !apply.code && patch.trim())
+    if (
+      !planningOnlyRequested &&
+      !benchmarkGrade &&
+      !hidden &&
+      !apply.code &&
+      patch.trim()
+    )
       for (const command of value.evaluator.commands) {
         const remainingMs = deadline - Date.now();
         if (remainingMs <= 0) {
@@ -744,7 +788,12 @@ export async function runBenchmarkCase(
     );
     return { ...report, runDirectory: dir };
   } finally {
-    if (!planningOnlyRequested && value.evaluator.cleanupCommand) {
+    if (
+      !planningOnlyRequested &&
+      !hidden &&
+      existsSync(evaluator) &&
+      value.evaluator.cleanupCommand
+    ) {
       await runCommand(
         value.evaluator.cleanupCommand,
         evaluator,

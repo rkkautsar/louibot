@@ -26,6 +26,7 @@ import {
   parseAgentResponse,
   resultSchemaFor,
   missingBlockingPlanningReplies,
+  missingReviewFindingReplies,
   planningApprovalIsValid,
   planningReviewIssues,
   planningRevisionDiff,
@@ -493,6 +494,25 @@ test("review normalization cannot bypass the checks gate", () => {
       checks: [{ command: "yarn test", result: "passed" }],
     }).status,
     "pass",
+  );
+});
+
+test("review findings get stable ids and require replies", () => {
+  const normalized = normalizeReviewResult({
+    status: "findings",
+    summary: "",
+    findings: [{ file: "src/a.ts", title: "Fix a", details: "a is wrong" }],
+    checks: [],
+  });
+  assert.equal(normalized.findings[0]?.id, "review-1");
+  assert.deepEqual(missingReviewFindingReplies(normalized.findings, []), [
+    "review-1",
+  ]);
+  assert.deepEqual(
+    missingReviewFindingReplies(normalized.findings, [
+      { concernId: "review-1" },
+    ]),
+    [],
   );
 });
 

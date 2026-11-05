@@ -19,6 +19,7 @@ test("GitHub phase labels have defaults", () => {
   assert.deepEqual(config.sandbox, {
     image: "auto",
     commandTimeoutSeconds: 120,
+    shellTimeoutSeconds: 180,
     network: "bridge",
   });
   assert.deepEqual(config.validation, { commands: [], required: false });

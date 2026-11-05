@@ -286,7 +286,7 @@ async function execPreparedTests(worktree, command) {
   );
 }
 
-async function runTests(worktree, row, outputPath, install = true) {
+function testCommands(row) {
   const commands = [
     ...row.eval_script.matchAll(
       /^\s*\(\s*(yarn\s+test\s+.+?)\s*\)\s*\|\s*cat\s*$/gm,
@@ -301,6 +301,11 @@ async function runTests(worktree, row, outputPath, install = true) {
     throw new Error(
       `Official Jest command could not be safely extracted for ${row.instance_id}`,
     );
+  return commands;
+}
+
+async function runTests(worktree, row, outputPath, install = true) {
+  const commands = testCommands(row);
 
   const setup =
     "mkdir -p /cache/corepack-bin && export COREPACK_HOME=/cache/corepack YARN_CACHE_FOLDER=/cache/yarn CI=1 && corepack enable --install-directory /cache/corepack-bin && export PATH=/cache/corepack-bin:$PATH && corepack prepare yarn@1.22.22 --activate >/dev/null";
@@ -542,8 +547,15 @@ if (args[0] === "--init-cache") {
     console.log(JSON.stringify({ setupSeconds: (ready - started) / 1000 }));
     // Keep the prepared filesystem, but do not idle a container for the whole
     // agent run. Evaluation starts this container again when needed.
-    await tryRun("docker", ["stop", name], { timeout: 30_000 });
+    await tryRun("docker", ["stop", graderContainerName(worktree)], {
+      timeout: 30_000,
+    });
   }
+} else if (args[0] === "--emit") {
+  const row = await rowFor(args[1] ?? process.env.BENCHMARK_CASE_ID);
+  console.log(
+    JSON.stringify({ patch: row.test_patch, commands: testCommands(row) }),
+  );
 } else if (args[0] === "--cleanup") {
   await stopPreparedContainer(process.cwd());
 } else if (args[0] === "--mini-patch") {

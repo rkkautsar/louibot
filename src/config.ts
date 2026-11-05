@@ -143,12 +143,14 @@ export const schema = z
       .object({
         image: z.string().default("auto"),
         commandTimeoutSeconds: z.number().positive().default(120),
+        shellTimeoutSeconds: z.number().positive().default(180),
         network: z.enum(["bridge", "none"]).default("bridge"),
         setupCommands: z.array(z.string().min(1).max(2000)).max(10).optional(),
       })
       .default({
         image: "auto",
         commandTimeoutSeconds: 120,
+        shellTimeoutSeconds: 180,
         network: "bridge",
       }),
     validation: z

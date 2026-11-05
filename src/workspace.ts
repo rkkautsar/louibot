@@ -89,7 +89,9 @@ export function buildShellCaptureCommand(
 
 export type SandboxNetwork = "bridge" | "none";
 
-const SANDBOX_MEMORY_MB = 2_048;
+const SANDBOX_MEMORY_MB = Number(
+  process.env.LOUIBOT_SANDBOX_MEMORY_MB ?? 4_096,
+);
 const SANDBOX_CPUS = 2;
 const SANDBOX_PIDS_LIMIT = 256;
 
@@ -830,18 +832,29 @@ export class Sandbox {
     }
   }
 
-  async shell(command: string, signal?: AbortSignal): Promise<string> {
+  async shell(
+    command: string,
+    signal?: AbortSignal,
+    timeoutSeconds = this.timeoutSeconds,
+  ): Promise<string> {
     if (!this.started || this.disposed)
       throw new Error("Sandbox is not running");
-    return this.executeShell(this.id, command, signal);
+    return this.executeShell(
+      this.id,
+      command,
+      signal,
+      Math.min(timeoutSeconds, this.timeoutSeconds),
+    );
   }
 
   private async executeShell(
     containerId: string,
     command: string,
     signal?: AbortSignal,
+    timeoutSeconds = this.timeoutSeconds,
   ): Promise<string> {
     if (signal?.aborted) throw new Error("Sandbox command cancelled");
+    timeoutSeconds = Math.min(timeoutSeconds, this.timeoutSeconds);
     const outputPath = `/tmp/louibot-shell-${randomUUID()}.log`;
     return new Promise<string>((resolvePromise, rejectPromise) => {
       const child = spawn(
@@ -901,16 +914,14 @@ export class Sandbox {
       const timer = setTimeout(() => {
         child.kill("SIGTERM");
         this.log(
-          `Sandbox command timed out after ${this.timeoutSeconds}s: ${command}`,
+          `Sandbox command timed out after ${timeoutSeconds}s: ${command}`,
         );
         void stopContainer().finally(() =>
           finish(
-            new Error(
-              `Sandbox command timed out after ${this.timeoutSeconds}s`,
-            ),
+            new Error(`Sandbox command timed out after ${timeoutSeconds}s`),
           ),
         );
-      }, this.timeoutSeconds * 1000);
+      }, timeoutSeconds * 1000);
       signal?.addEventListener("abort", abort, { once: true });
       child.stdout.on("data", append);
       child.stderr.on("data", append);
