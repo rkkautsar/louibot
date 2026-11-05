@@ -23,9 +23,11 @@ test("GitHub phase labels have defaults", () => {
     network: "bridge",
   });
   assert.deepEqual(config.validation, { commands: [], required: false });
-  assert.equal(config.agent.contextWindowTokens, 200000);
-  assert.equal(config.agent.maxInputTokens, 160000);
-  assert.equal(config.agent.maxOutputTokens, 32000);
+  assert.equal(config.agent.maxSteps, 160);
+  assert.equal(config.agent.maxCostUsd, 6);
+  assert.equal(config.agent.contextWindowTokens, 400000);
+  assert.equal(config.agent.maxInputTokens, 300000);
+  assert.equal(config.agent.maxOutputTokens, 64000);
   assert.equal(config.agent.clarificationEnabled, true);
   assert.equal(config.agent.modelMaxRetries, 2);
   assert.equal(config.agent.modelRequestTimeoutSeconds, 180);
