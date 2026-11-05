@@ -35,16 +35,18 @@ Use `@louibot revise` on a draft PR for review feedback. Clarification is enable
 
 Both agents use `deepseek/deepseek-v4.1-flash` with high reasoning.
 
-| Task | Louibot | Mini-SWE-Agent |
-| --- | --- | --- |
-| docusaurus-9183 | pass | pass |
-| docusaurus-10309 | pass | pass |
-| docusaurus-10130 | pass | pass |
-| docusaurus-8927 | fail | fail |
-| preact-2757 | pass | pass |
-| preact-3454 | pass | pass |
-| preact-3010 | pass | pass |
-| preact-4436 | pass | fail |
+| Task | Louibot | Time | Cost | Mini-SWE | Time | Cost |
+| --- | --- | --- | --- | --- | --- | --- |
+| docusaurus-9183 | pass | 20m28s | $0.811 | pass | 5m22s | $0.160 |
+| docusaurus-10309 | pass | 33m52s | $0.247 | pass | 4m10s | $0.090 |
+| docusaurus-10130 | pass | 29m36s | $0.205 | pass | 4m49s | $0.109 |
+| docusaurus-8927 | fail | 14m24s | $0.386 | fail | 5m03s | $0.146 |
+| preact-2757 | pass | 10m28s | $0.414 | pass | 2m29s | $0.080 |
+| preact-3454 | pass | 7m09s | $0.181 | pass | 1m09s | $0.018 |
+| preact-3010 | pass | 13m32s | $0.423 | pass | 2m29s | $0.127 |
+| preact-4436 | pass | 25m42s | $1.522 | fail | 28m07s | $1.670 |
+
+Times are solve time and exclude hidden-test grading. Costs are estimated from provider usage.
 
 Details and additional Preact runs: [benchmark harness](benchmarks/README.md).
 
