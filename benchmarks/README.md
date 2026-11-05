@@ -99,6 +99,14 @@ The standard SWE-bench and Verified datasets are Python-repository tasks. The SW
 
 This is a frozen selection, not a ready-to-run or official SWE-bench score. The catalog keeps it at `readyCases: 0` until preparation has verified the four base snapshots, a single bounded Node runtime, and the independent evaluator. Do not pull four task images or build a per-task image set: the storage-limited follow-up should reuse one runtime and sequentially verify the official task tests. Keep the dataset rows and test patches in the ignored private benchmark directory and expose only issue statements to the agents.
 
+Latest recorded Docusaurus 9183 pass:
+
+```text
+.louibot/benchmarks/runs/docusaurus-9183-commandcode-20261101-807a576c
+```
+
+It passed in 20m28s with the hidden evaluator exiting `0`. This supersedes the earlier failed 9183 row.
+
 External adapter result example (write to `BENCHMARK_RESULT_FILE`):
 
 ```json
