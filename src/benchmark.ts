@@ -329,16 +329,15 @@ export async function runBenchmarkCase(
     if (!resumeDirectory) {
       await isolatedCheckout(repo, candidate, base);
       checkouts.push(candidate);
+    }
+    const evaluatorMissing = !planningOnlyRequested && !existsSync(evaluator);
+    if (!resumeDirectory || evaluatorMissing) {
       if (!planningOnlyRequested) {
         await isolatedCheckout(repo, evaluator, base);
         checkouts.push(evaluator);
       }
     }
-    if (
-      !resumeDirectory &&
-      !planningOnlyRequested &&
-      value.evaluator.prepareCommand
-    ) {
+    if (evaluatorMissing && value.evaluator.prepareCommand) {
       evaluatorSetupStarted = Date.now();
       const prepared = await runCommand(
         value.evaluator.prepareCommand,
