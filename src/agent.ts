@@ -434,7 +434,7 @@ ${
 
 `
     : ""
-}If the task is unambiguously simple and low-risk — explicit requirements, one or two files, no open product choice, existing tests, and no security, migration, schema, or concurrency risk — return status "fast" with a concise fastPlan (summary, plan, validation, reason) and no hypotheses. Do not use fast when evidence or scope is uncertain.
+}Use status "fast" when the report names a concrete observable behavior and the likely fix is local and reversible, even if the exact implementation detail or root cause still needs source inspection. An unconfirmed implementation detail is not a reason to investigate. Use "briefs" only when there are genuinely competing causes that require evidence before a safe change, multiple independent behaviors, a product choice, a broad refactor, or security, migration, schema, or concurrency risk. When a single-behavior task can be verified with a focused test, prefer fast. Return a concise fastPlan (summary, plan, validation, reason) and no hypotheses.
 
 Otherwise return status "briefs" with a hypothesisCount from 1 to 6 and exactly that many hypothesis briefs with ids A-F. Choose the count from the distinct attack surfaces: use one brief when one cause or design constraint clearly dominates; add briefs only when the task has genuinely separable alternatives. Never split one idea into several to look thorough. For each brief state:
 - a falsifiable claim about the task (for a bug, the cause and the observation it predicts at the reported entry point; for a feature, the design direction or governing constraint and the observation that would confirm or refute it);
