@@ -2479,6 +2479,7 @@ export async function code(
           `${store.dir}/workflow-synthesis.sqlite`,
         ),
       });
+      let synthesisMalformedRecoveries = 0;
       const synthesis = await invokeWithCompletionRecovery(
         () =>
           invokeWithMalformedToolCallRecovery(
@@ -2493,7 +2494,11 @@ export async function code(
                   ],
                 },
                 {
-                  configurable: { thread_id: `${workflowThread}-synthesis` },
+                  configurable: {
+                    thread_id: recovery
+                      ? `${workflowThread}-synthesis-malformed-recovery-${++synthesisMalformedRecoveries}`
+                      : `${workflowThread}-synthesis`,
+                  },
                   recursionLimit: 12,
                   signal,
                 },
