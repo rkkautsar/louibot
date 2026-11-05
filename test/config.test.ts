@@ -31,6 +31,7 @@ test("GitHub phase labels have defaults", () => {
   assert.equal(config.agent.clarificationEnabled, true);
   assert.equal(config.agent.modelMaxRetries, 2);
   assert.equal(config.agent.modelRequestTimeoutSeconds, 180);
+  assert.equal(config.reviewer.maxSteps, 50);
 });
 
 test("parallel job limit defaults to one and is bounded", () => {
@@ -98,7 +99,7 @@ test("reviewer is opt-in and can use a separately priced model on the same provi
         inputUsdPerMillion: 0.038,
       },
     },
-    maxSteps: 24,
+    maxSteps: 50,
   });
   const parsed = schema.parse({
     ...base,

@@ -228,7 +228,7 @@ function addStartOptions(command: Command) {
     .option("--reviewer-model <provider/model>", "Model ID for the reviewer")
     .option(
       "--reviewer-max-steps <count>",
-      "Maximum reviewer steps (default: 24)",
+      "Maximum reviewer steps (default: 50)",
     )
     .option(
       "--reviewer-input-price <usd>",

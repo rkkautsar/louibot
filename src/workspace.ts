@@ -170,6 +170,7 @@ async function snapshotWorkspaceTree(
         worktree,
         [
           "add",
+          "-f",
           "-A",
           "--pathspec-from-file",
           pathspecPath,

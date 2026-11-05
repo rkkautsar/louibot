@@ -1998,7 +1998,7 @@ async function runPlanningOnlyWorkflow(args: {
                       : reviewerThread,
                   },
                   recursionLimit: implementationRecursionLimit(
-                    Math.min(config.reviewer.maxSteps, 24),
+                    config.reviewer.maxSteps,
                   ),
                   signal,
                 },
@@ -2844,7 +2844,7 @@ export async function code(
               thread_id: `issue-${job.issue}-attempt-${job.attempt ?? 1}-implementation-review-${round}`,
             },
             recursionLimit: implementationRecursionLimit(
-              Math.min(config.reviewer.maxSteps, 24),
+              config.reviewer.maxSteps,
             ),
             signal,
           },

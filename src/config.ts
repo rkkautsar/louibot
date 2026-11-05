@@ -120,7 +120,7 @@ export const schema = z
           .string()
           .regex(/^(openai|anthropic|openai-compatible)\/.+/)
           .optional(),
-        maxSteps: z.number().int().positive().default(24),
+        maxSteps: z.number().int().positive().default(50),
         inputUsdPerMillion: z.number().nonnegative().optional(),
         outputUsdPerMillion: z.number().nonnegative().optional(),
       })
@@ -137,7 +137,7 @@ export const schema = z
             inputUsdPerMillion: 0.038,
           },
         },
-        maxSteps: 24,
+        maxSteps: 50,
       }),
     sandbox: z
       .object({
