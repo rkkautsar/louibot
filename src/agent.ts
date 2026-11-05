@@ -734,6 +734,8 @@ export function parseAgentResponse<T>(
       if (trimmed) throw malformedToolCallError(maxOutputTokens);
     }
   }
+  if (structuredResponse === undefined)
+    throw malformedToolCallError(maxOutputTokens);
   return schema.parse(structuredResponse);
 }
 

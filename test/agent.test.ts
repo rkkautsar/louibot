@@ -40,6 +40,13 @@ import {
 
 const resultSchema = z.object({ status: z.string() });
 
+test("missing structured output is a recoverable malformed response", () => {
+  assert.throws(
+    () => parseAgentResponse(undefined, [], resultSchema, 1_000),
+    /malformed or truncated tool call/,
+  );
+});
+
 test("planner fast path requires a plan", () => {
   const schema = plannerSubmissionSchema(6, false);
   assert.throws(() =>
