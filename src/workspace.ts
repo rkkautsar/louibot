@@ -838,8 +838,9 @@ export class Sandbox {
     signal?: AbortSignal,
     timeoutSeconds = this.timeoutSeconds,
   ): Promise<string> {
-    if (!this.started || this.disposed)
-      throw new Error("Sandbox is not running");
+    if (signal?.aborted) throw new Error("Sandbox command cancelled");
+    if (this.disposed) throw new Error("Sandbox is not running");
+    if (!this.started) await this.start();
     return this.executeShell(
       this.id,
       command,
