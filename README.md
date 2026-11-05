@@ -45,6 +45,10 @@ Both agents use `deepseek/deepseek-v4.1-flash` with high reasoning.
 | preact-3454 | pass | 7m09s | $0.181 | pass | 1m09s | $0.018 |
 | preact-3010 | pass | 13m32s | $0.423 | pass | 2m29s | $0.127 |
 | preact-4436 | pass | 25m42s | $1.522 | fail | 28m07s | $1.670 |
+| preact-2927 | pass | 20m06s | $0.626 | pass | 1m16s | $0.033 |
+| preact-3062 | pass | 9m55s | $0.343 | pass | 1m37s | $0.039 |
+| preact-3345 | pending | — | — | pass | 3m42s | $0.229 |
+| preact-3562 | pending | — | — | pass | 2m37s | $0.095 |
 | preact-2896 | pass | 24m55s | $1.091 | fail | 30m05s | $0.281 |
 | preact-3567 | pass | 23m47s | $1.327 | fail | 54m43s | $0.259 |
 
