@@ -52,7 +52,7 @@ Both agents use `deepseek/deepseek-v4.1-flash`. The Docusaurus rows use CommandC
 | preact-2896      | pass    | 8m04s  | $0.391 | pass     | 30m05s | $0.281 |
 | preact-3567      | pass    | 6m21s  | $0.355 | pass     | 54m43s | $0.259 |
 
-Louibot times exclude hidden-test grading. The recorded Preact Mini-SWE times include grading; they are not directly comparable solve times. Costs are estimated from provider usage. The 4436, 2896, and 3567 Mini-SWE patches were regraded on 2026-11-06 in fresh official-image containers after the original browser grading failed or did not complete. All required tests passed; no model calls were made.
+Louibot times exclude hidden-test grading. The recorded Preact Mini-SWE times include grading; they are not directly comparable solve times. Costs are estimated from provider usage.
 
 Details and additional Preact runs: [benchmark harness](benchmarks/README.md).
 
