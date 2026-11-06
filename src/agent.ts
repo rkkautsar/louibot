@@ -448,7 +448,7 @@ Otherwise return status "briefs" with a hypothesisCount from 1 to 6 and exactly 
 - a falsifiable claim about the task (for a bug, the cause and the observation it predicts at the reported entry point; for a feature, the design direction or governing constraint and the observation that would confirm or refute it);
 - the smallest check that distinguishes it from the other briefs;
 - the result that would weaken it.
-Briefs must be settled by different checks; merge any that share one. Do not inspect the repository in either mode. Briefs must not propose a final change; a fastPlan may propose a concise change from the issue text alone.`;
+Briefs must be settled by different checks; merge any that share one. You may run at most 8 targeted read-only shell commands to establish package boundaries, entry points, and existing tests. Allowed commands: ls, find, rg, grep, sed, head, tail, cat, wc, file, stat, tree, pwd. Do not edit, install, test, build, use network, or read credentials. Stop once the scope is clear. Briefs must not propose a final change; a fastPlan may propose a concise change after this targeted inspection.`;
 
 const investigatorPrompt = (
   hypothesis: z.infer<typeof hypothesisSchema>,
@@ -2263,6 +2263,7 @@ export async function code(
         }
       | undefined;
     let fastPath = false;
+    let fastPlanForReview: z.infer<typeof fastPlanSchema> | undefined;
 
     if (options.planningOnly)
       return await runPlanningOnlyWorkflow({
@@ -2316,6 +2317,7 @@ export async function code(
       );
       let investigationRemaining = investigationBudget;
 
+      let plannerShellCalls = 0;
       const planner = createAgent({
         model: createRunModel(
           config.reviewer.pairedWorkflow.plannerModel,
@@ -2328,7 +2330,22 @@ export async function code(
             config.agent.clarificationEnabled,
           ),
         ),
-        tools: [],
+        tools: [
+          tool(
+            async ({ command }: { command: string }) => {
+              if (plannerShellCalls >= 8)
+                return "Planner inspection budget exhausted; return the structured response now.";
+              plannerShellCalls++;
+              return sandbox.shell(command, signal);
+            },
+            {
+              name: "shell",
+              description:
+                "Targeted inspection of package boundaries, entry points, and existing tests. Do not modify files.",
+              schema: z.object({ command: z.string().max(2_000) }),
+            },
+          ),
+        ],
         middleware: [
           budgetMiddleware(config, job, store, signal, "planner", {
             input:
@@ -2358,7 +2375,7 @@ export async function code(
                 },
                 {
                   configurable: { thread_id: `${workflowThread}-planner` },
-                  recursionLimit: 12,
+                  recursionLimit: implementationRecursionLimit(10),
                   signal,
                 },
               ),
@@ -2390,6 +2407,7 @@ export async function code(
       if (hypotheses.status === "fast") {
         const fastPlan = hypotheses.fastPlan!;
         fastPath = true;
+        fastPlanForReview = fastPlan;
         store.log(job.issue, "workflow.fast_path", fastPlan);
         implementationMessage = JSON.stringify({
           task: JSON.parse(taskMessage.content),
@@ -2562,7 +2580,7 @@ export async function code(
         };
         implementationMessage = JSON.stringify({
           task: JSON.parse(taskMessage.content),
-          planner: workflowHandoff,
+          planner: workflowHandoff ?? fastPlanForReview,
           instruction:
             "Continue from the planner's synthesized root cause and plan. Treat the hypothesis reports and synthesis as evidence-backed guidance, not unquestionable truth: verify relevant source while implementing, preserve all reported behaviors, and revise the plan if new evidence contradicts it. Make a focused non-test source change, add a reported-path regression test when feasible, run relevant checks, and report actual results.",
         });
@@ -3064,7 +3082,6 @@ export async function code(
     if (
       result.status === "done" &&
       config.reviewer.pairedWorkflow.enabled &&
-      !fastPath &&
       !options.approvedPlan
     ) {
       const reviewerModel = config.reviewer.model ?? config.model;

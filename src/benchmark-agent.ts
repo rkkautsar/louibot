@@ -145,10 +145,23 @@ async function main() {
             const patchPaths = [
               ...hiddenPatch.matchAll(/^diff --git a\/(.+?) b\//gm),
             ].map((match) => match[1]);
-            const reset = patchPaths
+            const hiddenBaseFiles = await Promise.all(
+              patchPaths.map(async (path) => {
+                try {
+                  return {
+                    path,
+                    content: await readFile(join(process.cwd(), path), "utf8"),
+                  };
+                } catch {
+                  return { path, content: null };
+                }
+              }),
+            );
+            const reset = hiddenBaseFiles
+              .filter((file) => file.content !== null)
               .map(
-                (path) =>
-                  `git checkout -- '${path.replaceAll("'", "'\\''")}' 2>/dev/null || true`,
+                (file) =>
+                  `printf %s '${Buffer.from(file.content!, "utf8").toString("base64")}' | base64 -d > '${file.path.replaceAll("'", "'\\''")}'`,
               )
               .join("; ");
             const command = (

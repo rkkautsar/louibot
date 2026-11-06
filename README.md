@@ -33,24 +33,24 @@ Use `@louibot revise` on a draft PR for review feedback. Clarification is enable
 
 ## Benchmarks
 
-Both agents use `deepseek/deepseek-v4.1-flash` with high reasoning.
+Both agents use `deepseek/deepseek-v4.1-flash`. The Docusaurus rows use CommandCode DeepSeek for every role.
 
-| Task | Louibot | Time | Cost | Mini-SWE | Time | Cost |
-| --- | --- | --- | --- | --- | --- | --- |
-| docusaurus-9183 | fail | 6m44s | $0.082 | pass | 5m22s | $0.160 |
-| docusaurus-10309 | pass | 6m09s | $0.054 | pass | 4m10s | $0.090 |
-| docusaurus-10130 | fail | 6m29s | $0.093 | pass | 4m49s | $0.109 |
-| docusaurus-8927 | fail | 5m01s | $0.039 | fail | 5m03s | $0.146 |
-| preact-2757 | pass | 2m40s | $0.051 | pass | 2m29s | $0.080 |
-| preact-3454 | pass | 1m18s | $0.026 | pass | 1m09s | $0.018 |
-| preact-3010 | pass | 4m22s | $0.123 | pass | 2m29s | $0.127 |
-| preact-4436 | pass | 9m35s | $0.663 | fail | 28m07s | $1.670 |
-| preact-2927 | pass | 3m28s | $0.116 | pass | 1m16s | $0.033 |
-| preact-3062 | pass | 1m43s | $0.029 | pass | 1m37s | $0.039 |
-| preact-3345 | pass | 9m04s | $0.449 | pass | 3m42s | $0.229 |
-| preact-3562 | pass | 3m40s | $0.106 | pass | 2m37s | $0.095 |
-| preact-2896 | pass | 8m04s | $0.391 | fail | 30m05s | $0.281 |
-| preact-3567 | pass | 6m21s | $0.355 | fail | 54m43s | $0.259 |
+| Task             | Louibot | Time   | Cost   | Mini-SWE | Time   | Cost   |
+| ---------------- | ------- | ------ | ------ | -------- | ------ | ------ |
+| docusaurus-9183  | pass    | 15m24s | $0.478 | pass     | 5m22s  | $0.160 |
+| docusaurus-10309 | pass    | 14m57s | $0.330 | pass     | 4m10s  | $0.090 |
+| docusaurus-10130 | pass    | 12m09s | $0.276 | pass     | 4m49s  | $0.109 |
+| docusaurus-8927  | fail    | 18m07s | $0.408 | fail     | 5m03s  | $0.146 |
+| preact-2757      | pass    | 2m40s  | $0.051 | pass     | 2m29s  | $0.080 |
+| preact-3454      | pass    | 1m18s  | $0.026 | pass     | 1m09s  | $0.018 |
+| preact-3010      | pass    | 4m22s  | $0.123 | pass     | 2m29s  | $0.127 |
+| preact-4436      | pass    | 9m35s  | $0.663 | fail     | 28m07s | $1.670 |
+| preact-2927      | pass    | 3m28s  | $0.116 | pass     | 1m16s  | $0.033 |
+| preact-3062      | pass    | 1m43s  | $0.029 | pass     | 1m37s  | $0.039 |
+| preact-3345      | pass    | 9m04s  | $0.449 | pass     | 3m42s  | $0.229 |
+| preact-3562      | pass    | 3m40s  | $0.106 | pass     | 2m37s  | $0.095 |
+| preact-2896      | pass    | 8m04s  | $0.391 | fail     | 30m05s | $0.281 |
+| preact-3567      | pass    | 6m21s  | $0.355 | fail     | 54m43s | $0.259 |
 
 Times are solve time and exclude hidden-test grading. Costs are estimated from provider usage.
 

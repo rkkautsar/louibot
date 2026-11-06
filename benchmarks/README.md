@@ -54,7 +54,6 @@ The SWE Verified task set is not bundled. Obtain it from its official source und
 
 Upstream references: [SWE-bench quickstart](https://www.swebench.com/SWE-bench/guides/quickstart/) and [SWE-bench evaluation](https://www.swebench.com/SWE-bench/guides/evaluation/).
 
-
 ### Acquiring the first SWE-bench subset
 
 1. Acquire the official [SWE-bench Verified dataset](https://huggingface.co/datasets/SWE-bench/SWE-bench_Verified) outside this repository. Pin its dataset revision and the upstream harness version in an acquisition manifest. Use the upstream quickstart below for installation; environment preparation and Docker images can require network access and substantial disk space.
@@ -102,15 +101,24 @@ This is a frozen selection, not a ready-to-run or official SWE-bench score. The 
 Latest recorded Docusaurus 9183 pass:
 
 ```text
-.louibot/benchmarks/runs/docusaurus-9183-commandcode-20261101-807a576c
+.louibot/benchmarks/runs/docusaurus-9183-f749a412
 ```
 
-It passed in 20m28s with the hidden evaluator exiting `0`. This supersedes the earlier failed 9183 row.
+It passed in 15m24s with the hidden evaluator exiting `0`, using CommandCode DeepSeek for the planner, investigators, synthesis, implementer, and reviewer. This supersedes the earlier failed 9183 row. The same all-DeepSeek batch also passed 10130 and 10309; 8927 remains failed.
 
 External adapter result example (write to `BENCHMARK_RESULT_FILE`):
 
 ```json
-{"action":"clarify","questions":["Which storage backend?"],"summary":"Backend choice is required","inputTokens":1200,"outputTokens":80,"toolCalls":2,"costUsd":0.0014,"budgetEnforced":false}
+{
+  "action": "clarify",
+  "questions": ["Which storage backend?"],
+  "summary": "Backend choice is required",
+  "inputTokens": 1200,
+  "outputTokens": 80,
+  "toolCalls": 2,
+  "costUsd": 0.0014,
+  "budgetEnforced": false
+}
 ```
 
 Unknown measurements should be omitted or `null`. `budgetEnforced` is an adapter attestation, not independent verification. Pin the exact model snapshot when available and preserve configuration, case, evaluator, and runtime provenance across repetitions. Fixed inputs do not guarantee identical stochastic model outputs. The built-in adapter uses fresh conversations for every invocation, including reply rounds, carrying only the explicit transcript and candidate files forward.

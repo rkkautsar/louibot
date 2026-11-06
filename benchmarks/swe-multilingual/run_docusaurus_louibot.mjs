@@ -108,7 +108,7 @@ for (const file of selectedCases) {
     updated: new Date().toISOString(),
     dataset: suite.dataset,
     datasetRevision: suite.datasetRevision,
-    model: "openai/gpt-6-luna",
+    model: reports[0]?.model ?? "unknown",
     mode: "stateless",
     evaluationKind: "shared-runtime-task-tests",
     requested: suite.cases.length,
