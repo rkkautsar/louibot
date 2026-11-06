@@ -45,21 +45,6 @@ def run(args, *, cwd=None, check=True, timeout=None, capture=True):
     )
 
 
-def short_test_name(name):
-    return name.split(" > ")[-1].strip()
-
-
-def tests_passed(output, row):
-    f2p = [short_test_name(name) for name in row.get("FAIL_TO_PASS", [])]
-    p2p = [short_test_name(name) for name in row.get("PASS_TO_PASS", [])]
-    missing_f2p = [name for name in f2p if f"✔ {name}" not in output]
-    failed_p2p = [name for name in p2p if f"✖ {name}" in output]
-    return not missing_f2p and not failed_p2p, {
-        "missingFailToPass": missing_f2p,
-        "failedPassToPass": failed_p2p,
-    }
-
-
 def write_summary(reports, started):
     payload = {
         "started": started,
@@ -196,9 +181,10 @@ def main():
         agent = None
         error = None
         result = None
-        test_output = ""
-        passed = False
+        passed = None
         failure = None
+        solve_elapsed = None
+        grading_elapsed = None
         try:
             environment = get_environment(config["environment"], default_type="docker")
             agent = get_agent(
@@ -221,34 +207,32 @@ def main():
             )
             patch_text = patch_result.get("output", "")
             (out / "candidate.patch").write_text(patch_text)
-            eval_path = out / "eval.sh"
-            eval_path.write_text(row["eval_script"])
-            cp_result = run(
-                [
-                    "docker",
-                    "cp",
-                    str(eval_path),
-                    f"{environment.container_id}:/root/eval.sh",
-                ],
-                check=False,
-                timeout=60,
+            solve_elapsed = round(time.time() - started_case, 2)
+            # Release the agent container before grading so its processes cannot
+            # exhaust the browser's PID budget in the evaluation container.
+            run(["docker", "rm", "-f", environment.container_id], timeout=60)
+            environment.container_id = None
+            grade_started = time.time()
+            grade_env = os.environ.copy()
+            grade_env.update(
+                BENCHMARK_CASE_ID=instance_id,
+                BENCHMARK_PATCH_FILE=str(out / "candidate.patch"),
             )
-            if cp_result.returncode != 0:
-                raise RuntimeError(
-                    f"docker cp eval.sh failed: {cp_result.stderr.strip()}"
-                )
-            check = environment.execute(
-                {"command": "test -s /root/eval.sh && echo EVAL_READY"},
-                timeout=30,
+            grade = subprocess.run(
+                ["node", str(ROOT / "benchmarks/swe-multilingual/evaluate_preact_case.mjs")],
+                env=grade_env,
+                capture_output=True,
+                text=True,
+                timeout=1900,
             )
-            if "EVAL_READY" not in check.get("output", ""):
-                raise RuntimeError("eval.sh is missing in the container")
-            evaluated = environment.execute(
-                {"command": "bash /root/eval.sh"}, timeout=1800
-            )
-            test_output = evaluated.get("output", "")
-            (out / "test_output.txt").write_text(test_output)
-            passed, failure = tests_passed(test_output, row)
+            grading_elapsed = round(time.time() - grade_started, 2)
+            grade_report = out / "preact-evaluation" / f"{instance_id}.report.json"
+            if not grade_report.exists():
+                raise RuntimeError(f"Evaluator did not write a report: {grade.stderr.strip()}")
+            failure = json.loads(grade_report.read_text())
+            passed = failure.get("passed")
+            if grade.returncode not in (0, 1, 2):
+                raise RuntimeError(f"Evaluator exited {grade.returncode}: {grade.stderr.strip()}")
         except BaseException as exc:
             error = f"{type(exc).__name__}: {exc}"
             if environment is not None and agent is not None:
@@ -299,6 +283,8 @@ def main():
             "estimatedCostUsd": cost,
             "litellmReportedCostUsd": GLOBAL_MODEL_STATS.cost - cost_before,
             "elapsedSeconds": elapsed,
+            "solveSeconds": solve_elapsed,
+            "gradingSeconds": grading_elapsed,
             "patchBytes": patch_path.stat().st_size if patch_path.exists() else 0,
             "passed": passed,
             "failure": failure,
@@ -308,7 +294,7 @@ def main():
         completed.add(instance_id)
         write_summary(reports, started)
         print(json.dumps({"event": "case.done", **report}), flush=True)
-        if stop_on_fail and not passed:
+        if stop_on_fail and passed is not True:
             print(
                 json.dumps(
                     {"event": "suite.stopped", "caseId": instance_id, "passed": False}

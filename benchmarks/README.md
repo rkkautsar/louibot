@@ -122,3 +122,9 @@ External adapter result example (write to `BENCHMARK_RESULT_FILE`):
 ```
 
 Unknown measurements should be omitted or `null`. `budgetEnforced` is an adapter attestation, not independent verification. Pin the exact model snapshot when available and preserve configuration, case, evaluator, and runtime provenance across repetitions. Fixed inputs do not guarantee identical stochastic model outputs. The built-in adapter uses fresh conversations for every invocation, including reply rounds, carrying only the explicit transcript and candidate files forward.
+
+### Preact Mini-SWE regrade (2026-11-06)
+
+The saved Mini-SWE candidate patches for 4436, 2896, and 3567 were regraded in fresh official-image containers. All required fail-to-pass and pass-to-pass tests reported passing (2 + 24, 1 + 8, and 1 + 20, respectively). No model was rerun. The original grading ran in the agent container: Chrome could not start for 4436 and 2896, while the 3567 log ended during browser startup. These original records do not establish patch failure.
+
+The Mini-SWE runner now releases the agent container and grades the saved patch in a fresh container. It reports incomplete evaluations separately from failed tests and records solve and grading durations separately. Older Preact Mini-SWE elapsed times include grading and should not be compared directly with Louibot solve times.

@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { classifyPreactGrade } from "./preact-grade-result.mjs";
 
 const root = resolve(dirname(new URL(import.meta.url).pathname), "../..");
 const datasetPath = join(
@@ -54,24 +55,24 @@ const docker = spawnSync(
 );
 const output = `${docker.stdout ?? ""}\n${docker.stderr ?? ""}`;
 writeFileSync(join(reportDir, `${instanceId}.test_output.txt`), output);
-const missingFailToPass = expectedFail.filter(
-  (name) => !output.includes(`✔ ${name}`),
-);
-const failedPassToPass = expectedPass.filter((name) =>
-  output.includes(`✖ ${name}`),
-);
-const passed =
-  docker.status === 0 &&
-  missingFailToPass.length === 0 &&
-  failedPassToPass.length === 0;
+const result = classifyPreactGrade({
+  output,
+  status: docker.status,
+  error: docker.error,
+  signal: docker.signal,
+  expectedFail,
+  expectedPass,
+});
+const { passed } = result;
 const report = {
   caseId: instanceId,
   evaluationKind: "swebench-official-image",
   image: row.image,
   exitCode: docker.status,
   passed,
-  missingFailToPass,
-  failedPassToPass,
+  ...result,
+  error: docker.error?.message ?? null,
+  signal: docker.signal,
   testOutput: join(reportDir, `${instanceId}.test_output.txt`),
 };
 writeFileSync(
@@ -79,4 +80,4 @@ writeFileSync(
   `${JSON.stringify(report, null, 2)}\n`,
 );
 console.log(JSON.stringify(report));
-process.exit(passed ? 0 : 1);
+process.exit(passed === null ? 2 : passed ? 0 : 1);

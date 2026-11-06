@@ -44,15 +44,15 @@ Both agents use `deepseek/deepseek-v4.1-flash`. The Docusaurus rows use CommandC
 | preact-2757      | pass    | 2m40s  | $0.051 | pass     | 2m29s  | $0.080 |
 | preact-3454      | pass    | 1m18s  | $0.026 | pass     | 1m09s  | $0.018 |
 | preact-3010      | pass    | 4m22s  | $0.123 | pass     | 2m29s  | $0.127 |
-| preact-4436      | pass    | 9m35s  | $0.663 | fail     | 28m07s | $1.670 |
+| preact-4436      | pass    | 9m35s  | $0.663 | pass     | 28m07s | $1.670 |
 | preact-2927      | pass    | 3m28s  | $0.116 | pass     | 1m16s  | $0.033 |
 | preact-3062      | pass    | 1m43s  | $0.029 | pass     | 1m37s  | $0.039 |
 | preact-3345      | pass    | 9m04s  | $0.449 | pass     | 3m42s  | $0.229 |
 | preact-3562      | pass    | 3m40s  | $0.106 | pass     | 2m37s  | $0.095 |
-| preact-2896      | pass    | 8m04s  | $0.391 | fail     | 30m05s | $0.281 |
-| preact-3567      | pass    | 6m21s  | $0.355 | fail     | 54m43s | $0.259 |
+| preact-2896      | pass    | 8m04s  | $0.391 | pass     | 30m05s | $0.281 |
+| preact-3567      | pass    | 6m21s  | $0.355 | pass     | 54m43s | $0.259 |
 
-Times are solve time and exclude hidden-test grading. Costs are estimated from provider usage.
+Louibot times exclude hidden-test grading. The recorded Preact Mini-SWE times include grading; they are not directly comparable solve times. Costs are estimated from provider usage. The 4436, 2896, and 3567 Mini-SWE patches were regraded on 2026-11-06 in fresh official-image containers after the original browser grading failed or did not complete. All required tests passed; no model calls were made.
 
 Details and additional Preact runs: [benchmark harness](benchmarks/README.md).
 
