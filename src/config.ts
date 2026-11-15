@@ -72,6 +72,9 @@ export const schema = z
         pairedWorkflow: z
           .object({
             enabled: z.boolean().default(false),
+            frontload: z
+              .enum(["planner", "checklist", "none"])
+              .default("planner"),
             investigatorReasoningEffort: reasoningEffortSchema.optional(),
             implementerReasoningEffort: reasoningEffortSchema.optional(),
             plannerModel: z
@@ -111,6 +114,7 @@ export const schema = z
           })
           .default({
             enabled: false,
+            frontload: "planner",
             parallelInvestigations: 6,
             maxInvestigationRounds: 8,
             maxImplementationReviews: 5,
@@ -132,6 +136,7 @@ export const schema = z
         enabled: false,
         pairedWorkflow: {
           enabled: false,
+          frontload: "planner",
           parallelInvestigations: 6,
           maxInvestigationRounds: 8,
           maxImplementationReviews: 5,
@@ -283,10 +288,32 @@ export function config(
     const fromOptions = definedOverrides[section];
     if (section === "endpoint" && fromOptions === null) continue;
     if (fromFile || fromOptions)
-      merged[section] = {
-        ...(fromFile && typeof fromFile === "object" ? fromFile : {}),
-        ...(fromOptions && typeof fromOptions === "object" ? fromOptions : {}),
-      };
+      merged[section] = mergeConfigValue(
+        fromFile && typeof fromFile === "object" ? fromFile : {},
+        fromOptions && typeof fromOptions === "object" ? fromOptions : {},
+      );
   }
   return schema.parse(merged);
+}
+
+function mergeConfigValue(base: unknown, override: unknown): unknown {
+  if (
+    !base ||
+    !override ||
+    typeof base !== "object" ||
+    typeof override !== "object" ||
+    Array.isArray(base) ||
+    Array.isArray(override)
+  )
+    return override;
+  const merged: Record<string, unknown> = {
+    ...(base as Record<string, unknown>),
+  };
+  for (const [key, value] of Object.entries(
+    override as Record<string, unknown>,
+  )) {
+    if (value === undefined) continue;
+    merged[key] = mergeConfigValue(merged[key], value);
+  }
+  return merged;
 }

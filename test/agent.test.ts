@@ -1021,8 +1021,8 @@ test("paired continuation acknowledges an existing source patch", () => {
   );
 });
 
-test("implementation step limit allows a model and tool cycle plus final response", () => {
-  assert.equal(implementationRecursionLimit(60), 121);
+test("implementation step limit leaves headroom for plan bookkeeping", () => {
+  assert.equal(implementationRecursionLimit(60), 161);
 });
 
 test("investigation command cap is bounded by the step limit", () => {

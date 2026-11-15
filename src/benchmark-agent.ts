@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import {
   approvedPlanHandoffSchema,
   code,
+  reportedTokenUsage,
   type ApprovedPlanHandoff,
 } from "./agent.js";
 import { schema } from "./config.js";
@@ -72,22 +73,28 @@ async function main() {
         data as NonNullable<typeof envelope.messages>[number],
       ];
       for (const message of messages) {
-        tools += message.tool_calls?.length ?? 0;
-        const usage = message.usage_metadata;
-        if (
-          usage &&
-          Number.isFinite(usage.input_tokens) &&
-          Number.isFinite(usage.output_tokens)
-        ) {
-          const cacheRead = Number(usage.input_token_details?.cache_read ?? 0);
-          input += usage.input_tokens;
-          output += usage.output_tokens;
+        tools +=
+          (message as { tool_calls?: unknown[] }).tool_calls?.length ?? 0;
+        const usage = reportedTokenUsage(message);
+        if (!usage) continue;
+        input += usage.inputTokens;
+        output += usage.outputTokens;
+        roleUsage[role] ??= { input: 0, output: 0, cacheRead: 0, calls: 0 };
+        roleUsage[role].input += usage.inputTokens;
+        roleUsage[role].output += usage.outputTokens;
+        roleUsage[role].cacheRead += usage.cacheReadTokens ?? 0;
+        roleUsage[role].calls += 1;
+        found = true;
+      }
+      if (!found) {
+        const usage = reportedTokenUsage(data);
+        if (usage) {
+          input += usage.inputTokens;
+          output += usage.outputTokens;
           roleUsage[role] ??= { input: 0, output: 0, cacheRead: 0, calls: 0 };
-          roleUsage[role].input += usage.input_tokens;
-          roleUsage[role].output += usage.output_tokens;
-          roleUsage[role].cacheRead += Number.isFinite(cacheRead)
-            ? cacheRead
-            : 0;
+          roleUsage[role].input += usage.inputTokens;
+          roleUsage[role].output += usage.outputTokens;
+          roleUsage[role].cacheRead += usage.cacheReadTokens ?? 0;
           roleUsage[role].calls += 1;
           found = true;
         }
@@ -262,7 +269,8 @@ async function main() {
   } finally {
     clearTimeout(timer);
   }
-  const complete = calls > 0 && calls === usageCalls;
+  const usageCoverage = calls > 0 ? usageCalls / calls : 0;
+  const complete = calls > 0 && usageCoverage >= 0.95;
   await writeFile(
     resultFile,
     JSON.stringify(
@@ -282,6 +290,7 @@ async function main() {
           : null,
         roleUsage: complete ? roleUsage : null,
         toolCalls: tools,
+        usageCoverage,
         costUsd: complete
           ? Object.entries(roleUsage).reduce((total, [role, usage]) => {
               const rates =

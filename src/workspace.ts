@@ -299,8 +299,7 @@ async function copyTree(
 ): Promise<void> {
   for (const entry of await readdir(source, { withFileTypes: true })) {
     const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.name === ".git" || entry.name === ".louibot" || secretPath(rel))
-      continue;
+    if (entry.name === ".louibot" || secretPath(rel)) continue;
     const from = join(source, entry.name);
     const to = join(destination, entry.name);
     const info = await lstat(from);
@@ -348,6 +347,44 @@ async function isCompleteStage(stage: string): Promise<boolean> {
   }
 }
 
+// A linked worktree stores a `.git` file pointing at an absolute host path that
+// does not exist inside the sandbox; rebuild a standalone repository instead so
+// git commands work. Standalone stage checkouts only need credential scrubbing.
+async function materializeWorkspaceGit(stage: string): Promise<void> {
+  const gitPath = join(stage, ".git");
+  const info = await lstat(gitPath).catch(() => undefined);
+  if (!info) return;
+  if (info.isFile()) {
+    await rm(gitPath, { force: true });
+    const env = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Louibot",
+      GIT_AUTHOR_EMAIL: "louibot@localhost",
+      GIT_COMMITTER_NAME: "Louibot",
+      GIT_COMMITTER_EMAIL: "louibot@localhost",
+      GIT_TERMINAL_PROMPT: "0",
+    };
+    await execFileAsync("git", ["init", "-q"], { cwd: stage, env });
+    await execFileAsync(
+      "git",
+      ["add", "-A", "--", ".", ":(exclude)node_modules"],
+      { cwd: stage, env, maxBuffer: MAX_GIT_PATHS },
+    );
+    await execFileAsync("git", ["commit", "-qm", "baseline"], {
+      cwd: stage,
+      env,
+      maxBuffer: MAX_GIT_PATHS,
+    }).catch(() => undefined);
+    return;
+  }
+  const configPath = join(gitPath, "config");
+  const config = await readFile(configPath, "utf8").catch(() => undefined);
+  if (config) {
+    const sanitized = config.replace(/(https?:\/\/)[^/@\s]+@/g, "$1");
+    if (sanitized !== config) await writeFile(configPath, sanitized);
+  }
+}
+
 export async function prepareSandboxStage(
   worktree: string,
   stage: string,
@@ -363,6 +400,7 @@ export async function prepareSandboxStage(
   await chmod(temporaryStage, 0o777);
   try {
     await copyTree(worktree, temporaryStage, worktree, "", true);
+    await materializeWorkspaceGit(temporaryStage);
     await rename(temporaryStage, stage);
     await writeFile(marker, STAGE_MARKER_CONTENT, { flag: "wx", mode: 0o600 });
   } catch (error) {
@@ -791,6 +829,22 @@ export class Sandbox {
         `${uid}:${gid}`,
         "--env",
         "HOME=/tmp",
+        "--env",
+        "CI=1",
+        "--env",
+        "NO_COLOR=1",
+        "--env",
+        "PAGER=cat",
+        "--env",
+        "GIT_PAGER=cat",
+        "--env",
+        "GIT_AUTHOR_NAME=Louibot",
+        "--env",
+        "GIT_AUTHOR_EMAIL=louibot@localhost",
+        "--env",
+        "GIT_COMMITTER_NAME=Louibot",
+        "--env",
+        "GIT_COMMITTER_EMAIL=louibot@localhost",
         "--env",
         this.readOnly
           ? "XDG_CACHE_HOME=/tmp/cache"
