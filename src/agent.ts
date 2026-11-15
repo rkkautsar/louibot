@@ -1042,7 +1042,9 @@ async function extractContractChecklist(
 ): Promise<ContractRequirement[]> {
   const planner = config.reviewer.pairedWorkflow;
   const agent = createAgent({
-    model: createModel(config, undefined, 16_000),
+    model: createModel(config, undefined, 32_000, {
+      reasoningEffort: "low",
+    }),
     systemPrompt:
       "Extract a complete, non-redundant product requirement checklist from a software task, ordered by priority: (1) core behaviors, state rules, and public interfaces/exports, (2) option parsing, normalization, defaults, invariants, and edge cases, (3) error conditions, and (4) technical runtime/package constraints. Preserve the task's own requirement granularity: keep each distinct numbered or bulleted requirement as its own item without merging separate items together, and keep cohesive clauses of a single option, signature, or validation rule together in one item that explicitly lists all stated cases rather than splitting one sentence into per-parameter or per-method fragments. Skip high-level summary sentences that are fully specified by detailed requirements below, and exclude git, branch, commit, pull-request, or reading-order workflow instructions. Quote the exact source text for every item, and never drop any stated product behavior or case. Populate boundary only when a requirement is genuinely ambiguous or leaves an interaction with existing code unspecified, stating the concrete contract question to verify against repository conventions; omit boundary when the requirement is clear, and never put file placement or implementation architecture in boundary. Do not propose an implementation design and do not inspect code.",
     responseFormat: toolStrategy(contractChecklistResponseSchema),
@@ -1079,7 +1081,13 @@ async function extractContractChecklist(
         } as never,
       );
       const parsed = contractChecklistResponseSchema.parse(
-        (result as { structuredResponse?: unknown }).structuredResponse,
+        (result as { structuredResponse?: unknown }).structuredResponse ??
+          parseAgentResponse(
+            undefined,
+            (result as { messages?: unknown[] }).messages ?? [],
+            contractChecklistResponseSchema,
+            config.agent.maxOutputTokens,
+          ),
       );
       return parsed.requirements.map((item, index) => ({
         id: `req-${index + 1}`,
