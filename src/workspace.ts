@@ -315,9 +315,11 @@ async function copyTree(
       await copyTree(from, to, sourceRoot, rel, writable);
     } else if (info.isFile()) {
       await cp(from, to, { force: true, preserveTimestamps: true });
+      // Only grant owner write: sync compares the full mode, so widening
+      // group/other bits would make every file look changed on sync-back.
       await chmod(
         to,
-        writable ? (info.mode & 0o777) | 0o222 : info.mode & 0o777,
+        writable ? (info.mode & 0o777) | 0o200 : info.mode & 0o777,
       );
     }
   }
