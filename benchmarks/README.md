@@ -92,19 +92,21 @@ The evaluator applies the candidate patch to the task's base, restores test file
 
 Label these results `shared-runtime-task-tests`: they use the task tests in a common environment and are not equivalent to official per-task container evaluation. Freeze the subset and runtime before new results, keep reference patches and hidden tests host-side, run sequentially, and bound Docker usage, workspace growth, and free space on the Windows drive holding the VHDX.
 
-### Frontend issue-resolution comparison
+### DeepSWE v1.1 comparison
 
-The standard SWE-bench and Verified datasets are Python-repository tasks. The SWE-bench family also includes [Multilingual](https://www.swebench.com/multilingual), a text-only set with JavaScript/TypeScript repositories, and [Multimodal](https://www.swebench.com/multimodal), which adds visual issue content. For a frontend comparison without introducing image interpretation as another variable, `swe-multilingual/docusaurus-4-selection.json` freezes four Docusaurus issues from the official Multilingual test split: relative image asset paths, code-block language casing, broken-link slash matching, and version-dropdown routing. Docusaurus is a substantial TypeScript documentation application. The selected issues span distinct behaviors and have 8 fail-to-pass and 89 pass-to-pass checks in the dataset metadata. They were selected before any new agent run; the manifest pins the dataset revision and each base commit.
+The recorded comparison is DeepSWE v1.1, a repo-level issue-resolution benchmark with an official
+per-task verifier. Tasks come from the published DeepSeek rollouts in
+`deepswe-trials-deepseek-20261115.json`, so every task has four mini-SWE attempts to compare
+against. The four selected TypeScript tasks split two solved and two failed in all four attempts;
+the harness lives in `benchmarks/deepswe/`.
 
-This is a frozen selection, not a ready-to-run or official SWE-bench score. The catalog keeps it at `readyCases: 0` until preparation has verified the four base snapshots, a single bounded Node runtime, and the independent evaluator. Do not pull four task images or build a per-task image set: the storage-limited follow-up should reuse one runtime and sequentially verify the official task tests. Keep the dataset rows and test patches in the ignored private benchmark directory and expose only issue statements to the agents.
+Costs are cache-aware: the rate card ($0.167/M uncached input, $0.0028/M cache read, $0.236/M
+output) was fitted by least squares over the 452 published trials. Configure it with
+`agent.cacheReadUsdPerMillion` alongside the input and output rates. Results and per-run artifacts
+live under `.louibot/benchmarks/deepswe-subset-20261115/`.
 
-Latest recorded Docusaurus 9183 pass:
-
-```text
-.louibot/benchmarks/runs/docusaurus-9183-f749a412
-```
-
-It passed in 15m24s with the hidden evaluator exiting `0`, using CommandCode DeepSeek for the planner, investigators, synthesis, implementer, and reviewer. This supersedes the earlier failed 9183 row. The same all-DeepSeek batch also passed 10130 and 10309; 8927 remains failed.
+First batch (2026-11-15): ofetch and true-myth pass (matching mini-SWE), superjson passes (mini-SWE
+0/4), awilix fails 23/24 (matching mini-SWE). Totals: Louibot $0.629, 143m; mini-SWE $0.282, 80m.
 
 External adapter result example (write to `BENCHMARK_RESULT_FILE`):
 
@@ -123,8 +125,4 @@ External adapter result example (write to `BENCHMARK_RESULT_FILE`):
 
 Unknown measurements should be omitted or `null`. `budgetEnforced` is an adapter attestation, not independent verification. Pin the exact model snapshot when available and preserve configuration, case, evaluator, and runtime provenance across repetitions. Fixed inputs do not guarantee identical stochastic model outputs. The built-in adapter uses fresh conversations for every invocation, including reply rounds, carrying only the explicit transcript and candidate files forward.
 
-### Preact Mini-SWE regrade (2026-11-06)
 
-The saved Mini-SWE candidate patches for 4436, 2896, and 3567 were regraded in fresh official-image containers. All required fail-to-pass and pass-to-pass tests reported passing (2 + 24, 1 + 8, and 1 + 20, respectively). No model was rerun. The original grading ran in the agent container: Chrome could not start for 4436 and 2896, while the 3567 log ended during browser startup. These original records do not establish patch failure.
-
-The Mini-SWE runner now releases the agent container and grades the saved patch in a fresh container. It reports incomplete evaluations separately from failed tests and records solve and grading durations separately. Older Preact Mini-SWE elapsed times include grading and should not be compared directly with Louibot solve times.

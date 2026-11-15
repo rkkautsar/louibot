@@ -226,7 +226,7 @@ class GuardedChatOpenAIResponses extends ChatOpenAIResponses {
 }
 
 export type ReasoningEffort =
-  "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export function createModel(
   config: Config,

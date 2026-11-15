@@ -395,7 +395,9 @@ export function workflow(
       await save(currentJob, "coding");
       let result: Result;
       try {
-        result = await code(config, currentJob, store, signal);
+        result = await code(config, currentJob, store, signal, {
+          resume: (currentJob.attempt ?? 1) > 1,
+        });
         if (config.reviewer.pairedWorkflow.enabled) {
           currentJob.reviewerModel = config.reviewer.model ?? config.model;
           if (result.status === "done") {

@@ -105,6 +105,10 @@ async function main() {
     body += `\n\nBase-tree code map:\n${await readFile(process.env.BENCHMARK_CODE_MAP, "utf8")}`;
   const job: Job = {
     issue: 1,
+    // A resumed run keeps the persisted workflow handoff but starts fresh
+    // LangGraph threads; otherwise the prior attempt's message history is
+    // reloaded and immediately exceeds the input-token budget.
+    attempt: process.env.BENCHMARK_STATE_DIR ? 2 : undefined,
     title: process.env.BENCHMARK_CASE_ID ?? "benchmark",
     body,
     status: "coding",
@@ -211,6 +215,7 @@ async function main() {
       planningOnly,
       approvedPlan,
       benchmarkGrade,
+      resume: Boolean(process.env.BENCHMARK_STATE_DIR),
     });
     result = {
       action: response.planningOnly

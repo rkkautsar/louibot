@@ -33,28 +33,27 @@ Use `@louibot revise` on a draft PR for review feedback. Clarification is enable
 
 ## Benchmarks
 
-Both agents use `deepseek/deepseek-v4.1-flash`. The Docusaurus rows use CommandCode DeepSeek for every role.
+Both agents use `deepseek/deepseek-v4-flash` through CommandCode. The recorded comparison is
+[DeepSWE v1.1](https://deepswe.datacurve.ai/), a repo-level issue-resolution benchmark with an
+official verifier. Four TypeScript tasks were chosen from the published DeepSeek rollouts: two
+that mini-SWE solved in all four attempts, two that it failed in all four.
 
-| Task             | Louibot | Time   | Cost   | Mini-SWE | Time   | Cost   |
-| ---------------- | ------- | ------ | ------ | -------- | ------ | ------ |
-| docusaurus-9183  | pass    | 15m24s | $0.478 | pass     | 5m22s  | $0.160 |
-| docusaurus-10309 | pass    | 14m57s | $0.330 | pass     | 4m10s  | $0.090 |
-| docusaurus-10130 | pass    | 12m09s | $0.276 | pass     | 4m49s  | $0.109 |
-| docusaurus-8927  | fail    | 18m07s | $0.408 | fail     | 5m03s  | $0.146 |
-| preact-2757      | pass    | 2m40s  | $0.051 | pass     | 2m29s  | $0.080 |
-| preact-3454      | pass    | 1m18s  | $0.026 | pass     | 1m09s  | $0.018 |
-| preact-3010      | pass    | 4m22s  | $0.123 | pass     | 2m29s  | $0.127 |
-| preact-4436      | pass    | 9m35s  | $0.663 | pass     | 28m07s | $1.670 |
-| preact-2927      | pass    | 3m28s  | $0.116 | pass     | 1m16s  | $0.033 |
-| preact-3062      | pass    | 1m43s  | $0.029 | pass     | 1m37s  | $0.039 |
-| preact-3345      | pass    | 9m04s  | $0.449 | pass     | 3m42s  | $0.229 |
-| preact-3562      | pass    | 3m40s  | $0.106 | pass     | 2m37s  | $0.095 |
-| preact-2896      | pass    | 8m04s  | $0.391 | pass     | 30m05s | $0.281 |
-| preact-3567      | pass    | 6m21s  | $0.355 | pass     | 54m43s | $0.259 |
+| Task                                       | Mini-SWE (4 attempts) | Louibot | Louibot time | Louibot cost |
+| ------------------------------------------ | --------------------- | ------- | ------------ | ------------ |
+| ofetch-per-origin-circuit-breaker          | 4/4 pass              | pass    | 29m42s       | $0.127       |
+| true-myth-iterable-collection-combinators  | 4/4 pass              | pass    | 39m30s       | $0.178       |
+| superjson-error-stack-serialization        | 0/4 (77–79/80 f2p)    | **pass** | 56m31s      | $0.257       |
+| awilix-async-container-initialization      | 0/4 (23/24 f2p)       | fail    | 17m44s*      | $0.066*      |
 
-Louibot times exclude hidden-test grading. The recorded Preact Mini-SWE times include grading; they are not directly comparable solve times. Costs are estimated from provider usage.
+The deep workflow recovered `superjson`, which mini-SWE failed on all four attempts, and reproduced
+mini-SWE's single-test miss on `awilix`. \*`awilix` was resumed from the persisted workflow handoff,
+so its time and cost exclude planning.
 
-Details and additional Preact runs: [benchmark harness](benchmarks/README.md).
+Costs are cache-aware and priced with the rate card inferred from the published mini-SWE rollouts
+($0.167/M uncached input, $0.0028/M cache read, $0.236/M output). On these four tasks Louibot totals
+**$0.629** against mini-SWE's **$0.282**, and 143m against 80m wall time.
+
+Harness, task configs, and per-run artifacts: [benchmark harness](benchmarks/README.md).
 
 ## Docs
 

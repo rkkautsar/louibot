@@ -330,12 +330,14 @@ export async function runBenchmarkCase(
       await isolatedCheckout(repo, candidate, base);
       checkouts.push(candidate);
     }
+    // Always grade from a pristine base checkout. On resume the previous
+    // evaluator tree may already contain an applied patch, which makes the
+    // current patch fail to apply and the case status "patch-invalid".
     const evaluatorMissing = !planningOnlyRequested && !existsSync(evaluator);
-    if (!resumeDirectory || evaluatorMissing) {
-      if (!planningOnlyRequested) {
-        await isolatedCheckout(repo, evaluator, base);
-        checkouts.push(evaluator);
-      }
+    if (!planningOnlyRequested) {
+      if (existsSync(evaluator)) await removeTree(evaluator);
+      await isolatedCheckout(repo, evaluator, base);
+      checkouts.push(evaluator);
     }
     if (evaluatorMissing && value.evaluator.prepareCommand) {
       evaluatorSetupStarted = Date.now();

@@ -8,6 +8,7 @@ const reasoningEffortSchema = z.enum([
   "medium",
   "high",
   "xhigh",
+  "max",
 ]);
 export const schema = z
   .object({
@@ -61,6 +62,9 @@ export const schema = z
       modelRequestTimeoutSeconds: z.number().int().positive().default(180),
       inputUsdPerMillion: z.number().nonnegative(),
       outputUsdPerMillion: z.number().nonnegative(),
+      // Optional: billed rate for provider-cached prompt reads. Falls back to
+      // the full input rate so existing configs keep their old estimates.
+      cacheReadUsdPerMillion: z.number().nonnegative().optional(),
     }),
     reviewer: z
       .object({
