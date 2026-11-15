@@ -3,7 +3,14 @@
 // Env: BENCHMARK_CASE_ID = DeepSWE task name, BENCHMARK_PATCH_FILE = candidate patch.
 // Exit: 0 passed, 1 failed, 2 inconclusive (missing reward / infrastructure error).
 import { execFileSync } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
 import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -63,6 +70,7 @@ await writeFile(join(dir, "artifacts", "model.patch"), await readFile(patchFile)
 let stdout = "";
 let stderr = "";
 let code = 0;
+const verifierStarted = Date.now();
 try {
   stdout = run([
     "run",
@@ -83,6 +91,8 @@ try {
   code = typeof error?.status === "number" ? error.status : 1;
 }
 
+const verifierMs = Date.now() - verifierStarted;
+
 await writeFile(join(dir, "verifier", "test-stdout.txt"), stdout + (stderr ? `\n${stderr}` : ""));
 
 let reward = null;
@@ -90,7 +100,38 @@ try {
   reward = JSON.parse(await readFile(join(dir, "verifier", "reward.json"), "utf8"));
 } catch {}
 
-const complete = reward !== null && !reward.apply_failed;
+let ctrf = null;
+try {
+  ctrf = JSON.parse(await readFile(join(dir, "verifier", "ctrf.json"), "utf8"));
+} catch {}
+const tests = Array.isArray(ctrf?.results?.tests) ? ctrf.results.tests : [];
+// A crashed suite can still emit a JUnit report where every testcase has
+// time="0" while the suite itself took seconds. Treat that as a crash.
+let zeroJunit = false;
+try {
+  const reportsDir = join(dir, "verifier", "reports");
+  for (const name of await readdir(reportsDir)) {
+    if (!name.endsWith(".xml")) continue;
+    const xml = await readFile(join(reportsDir, name), "utf8");
+    const suiteTime = Number(
+      /<testsuite\b[^>]*\btime="([\d.]+)"/.exec(xml)?.[1] ?? 0,
+    );
+    const cases = [...xml.matchAll(/<testcase\b[^>]*\btime="([\d.]+)"/g)].map(
+      (match) => Number(match[1]),
+    );
+    if (cases.length > 0 && cases.every((time) => time === 0) && suiteTime === 0)
+      zeroJunit = true;
+  }
+} catch {}
+const crashText = /heap out of memory|Worker exited unexpectedly|FATAL ERROR/i.test(
+  stdout + stderr,
+);
+const passedWithoutTests = reward?.reward === 1 && tests.length === 0;
+const crashDetected =
+  crashText ||
+  (zeroJunit && verifierMs > 10_000) ||
+  passedWithoutTests;
+const complete = reward !== null && !reward.apply_failed && !crashDetected;
 const passed = complete && reward.reward === 1;
 const report = {
   caseId,
@@ -105,7 +146,14 @@ const report = {
   f2p: reward ? { passed: reward.f2p_passed, total: reward.f2p_total } : null,
   p2p: reward ? { passed: reward.p2p_passed, total: reward.p2p_total } : null,
   partial: reward?.partial ?? null,
-  error: complete ? null : code !== 0 ? stderr.slice(-2000) : "missing reward.json",
+  crashDetected,
+  error: complete
+    ? null
+    : crashDetected
+      ? `verifier suite crashed or produced zero-duration results (exit ${code})`
+      : code !== 0
+        ? stderr.slice(-2000)
+        : "missing reward.json",
   testOutput: join(dir, "verifier", "test-stdout.txt"),
 };
 console.log(JSON.stringify(report));
