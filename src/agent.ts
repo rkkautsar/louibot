@@ -1013,7 +1013,7 @@ const contractRequirementSchema = z.object({
   boundary: z.string().max(600).optional(),
 });
 const contractChecklistResponseSchema = z.object({
-  requirements: z.array(contractRequirementSchema).min(1).max(32),
+  requirements: z.array(contractRequirementSchema).min(1).max(24),
 });
 
 export type ContractRequirement = {
@@ -1044,7 +1044,7 @@ async function extractContractChecklist(
   const agent = createAgent({
     model: createModel(config, undefined, 16_000),
     systemPrompt:
-      "Extract an exact, atomic requirement checklist from a software task. Each explicit behavior, interface or signature, configuration option or default, error condition, invariant, and edge case stated in the task must be its own item. Quote the source text for every item. When a requirement has multiple plausible readings or leaves an interaction with existing code unspecified, record the concrete question to check against repository conventions in boundary. Every numbered or enumerated requirement in the task must be its own item; do not merge, summarize, or omit items. Do not propose an implementation design and do not inspect code.",
+      "Extract a complete, non-redundant product requirement checklist from a software task, ordered by priority: (1) core behaviors, state rules, and public interfaces/exports, (2) option parsing, normalization, defaults, invariants, and edge cases, (3) error conditions, and (4) technical runtime/package constraints. Preserve the task's own requirement granularity: keep each distinct numbered or bulleted requirement as its own item without merging separate items together, and keep cohesive clauses of a single option, signature, or validation rule together in one item that explicitly lists all stated cases rather than splitting one sentence into per-parameter or per-method fragments. Skip high-level summary sentences that are fully specified by detailed requirements below, and exclude git, branch, commit, pull-request, or reading-order workflow instructions. Quote the exact source text for every item, and never drop any stated product behavior or case. Populate boundary only when a requirement is genuinely ambiguous or leaves an interaction with existing code unspecified, stating the concrete contract question to verify against repository conventions; omit boundary when the requirement is clear, and never put file placement or implementation architecture in boundary. Do not propose an implementation design and do not inspect code.",
     responseFormat: toolStrategy(contractChecklistResponseSchema),
     tools: [],
     middleware: [
