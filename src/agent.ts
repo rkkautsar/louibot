@@ -1,7 +1,7 @@
 import { createAgent, createMiddleware, tool, toolStrategy } from "langchain";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   createModel,
   MALFORMED_TOOL_CALL,
@@ -1108,6 +1108,29 @@ async function saveContractChecklist(
     join(dir, CONTRACT_CHECKLIST_FILE),
     JSON.stringify({ requirements: checklist }, null, 2) + "\n",
   );
+}
+
+async function saveChecklistFile(
+  path: string,
+  checklist: ContractRequirement[],
+): Promise<void> {
+  await writeFile(
+    path,
+    JSON.stringify({ requirements: checklist }, null, 2) + "\n",
+  );
+}
+
+async function loadChecklistFile(
+  path: string,
+): Promise<ContractRequirement[] | undefined> {
+  try {
+    const raw = JSON.parse(await readFile(path, "utf8")) as {
+      requirements?: ContractRequirement[];
+    };
+    return Array.isArray(raw.requirements) ? raw.requirements : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function loadContractChecklist(
@@ -2681,9 +2704,14 @@ Finish every pending or in_progress item with concrete evidence before returning
       !options.approvedPlan &&
       config.reviewer.pairedWorkflow.frontload === "checklist"
     ) {
-      const savedChecklist = options.resume
-        ? await loadContractChecklist(store.dir)
+      const checklistPath = config.reviewer.pairedWorkflow.checklistPath
+        ? resolve(config.reviewer.pairedWorkflow.checklistPath)
         : undefined;
+      const savedChecklist = checklistPath
+        ? await loadChecklistFile(checklistPath)
+        : options.resume
+          ? await loadContractChecklist(store.dir)
+          : undefined;
       contractChecklist =
         savedChecklist ??
         (await extractContractChecklist(
@@ -2693,8 +2721,11 @@ Finish every pending or in_progress item with concrete evidence before returning
           taskMessage.content,
           signal,
         ));
-      if (!savedChecklist && contractChecklist.length)
-        await saveContractChecklist(store.dir, contractChecklist);
+      if (contractChecklist.length && !savedChecklist) {
+        if (checklistPath)
+          await saveChecklistFile(checklistPath, contractChecklist);
+        else await saveContractChecklist(store.dir, contractChecklist);
+      }
       activePlan = contractChecklist.map((item) => ({
         id: item.id,
         step: item.requirement,
@@ -3512,6 +3543,7 @@ Finish every pending or in_progress item with concrete evidence before returning
     if (
       result.status === "done" &&
       config.reviewer.pairedWorkflow.enabled &&
+      config.reviewer.pairedWorkflow.review &&
       !options.approvedPlan
     ) {
       const reviewerModel = config.reviewer.model ?? config.model;

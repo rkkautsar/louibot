@@ -90,6 +90,7 @@ test("reviewer is opt-in and can use a separately priced model on the same provi
     enabled: false,
     pairedWorkflow: {
       enabled: false,
+      review: true,
       frontload: "planner",
       parallelInvestigations: 6,
       maxInvestigationRounds: 8,
