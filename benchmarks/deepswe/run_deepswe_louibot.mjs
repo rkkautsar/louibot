@@ -19,6 +19,10 @@ const TASKS = [
   { id: "true-myth-iterable-collection-combinators", expected: "pass" },
   { id: "awilix-async-container-initialization", expected: "fail" },
   { id: "superjson-error-stack-serialization", expected: "fail" },
+  { id: "claude-code-by-agents-recursive-delegation", expected: "pass" },
+  { id: "dynamodb-toolbox-lazy-recursive-schemas", expected: "pass" },
+  { id: "happy-dom-deterministic-intersectionobserver", expected: "fail" },
+  { id: "koota-composite-trait-aspects", expected: "fail" },
 ];
 
 if (!process.env.COMMANDCODE_API_KEY) {
