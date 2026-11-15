@@ -1058,33 +1058,44 @@ async function extractContractChecklist(
     ],
     checkpointer: SqliteSaver.fromConnString(`${store.dir}/contract.sqlite`),
   });
-  try {
-    const result = await agent.invoke(
-      { messages: [{ role: "user", content: task }] },
-      {
-        configurable: { thread_id: `${job.issue}-contract` },
-        recursionLimit: 6,
-        signal,
-      } as never,
-    );
-    const parsed = contractChecklistResponseSchema.parse(
-      (result as { structuredResponse?: unknown }).structuredResponse,
-    );
-    return parsed.requirements.map((item, index) => ({
-      id: `req-${index + 1}`,
-      quote: item.quote,
-      requirement: item.requirement,
-      ...(item.boundary ? { boundary: item.boundary } : {}),
-    }));
-  } catch (error) {
-    if (signal.aborted) throw error;
-    store.log(
-      job.issue,
-      "workflow.contract.extract_failed",
-      String(error).slice(-2_000),
-    );
-    return [];
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const result = await agent.invoke(
+        {
+          messages: [
+            {
+              role: "user",
+              content:
+                attempt === 1
+                  ? task
+                  : `${task}\n\nCall the provided tool with the extracted requirement checklist.`,
+            },
+          ],
+        },
+        {
+          configurable: { thread_id: `${job.issue}-contract-${attempt}` },
+          recursionLimit: 8,
+          signal,
+        } as never,
+      );
+      const parsed = contractChecklistResponseSchema.parse(
+        (result as { structuredResponse?: unknown }).structuredResponse,
+      );
+      return parsed.requirements.map((item, index) => ({
+        id: `req-${index + 1}`,
+        quote: item.quote,
+        requirement: item.requirement,
+        ...(item.boundary ? { boundary: item.boundary } : {}),
+      }));
+    } catch (error) {
+      if (signal.aborted) throw error;
+      store.log(job.issue, "workflow.contract.extract_failed", {
+        attempt,
+        error: String(error).slice(-2_000),
+      });
+    }
   }
+  return [];
 }
 
 const CONTRACT_CHECKLIST_FILE = "contract-checklist.json";
