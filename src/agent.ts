@@ -2544,6 +2544,16 @@ export async function code(
     if (process.env.BENCHMARK_SKIP_SETUP !== "1")
       for (const command of config.sandbox.setupCommands ?? [])
         await sandbox.shell(command, signal);
+    const seedPatchPath = config.sandbox.seedPatch;
+    if (seedPatchPath) {
+      const patch = await readFile(seedPatchPath, "utf8");
+      const encoded = Buffer.from(patch, "utf8").toString("base64");
+      await sandbox.shell(
+        `printf %s '${encoded}' | base64 -d > /tmp/louibot-seed.patch && cd /workspace && git apply --whitespace=nowarn /tmp/louibot-seed.patch && rm -f /tmp/louibot-seed.patch`,
+        signal,
+      );
+      store.log(job.issue, "implementation.seeded", { path: seedPatchPath });
+    }
     const model = createRunModel(
       undefined,
       undefined,
@@ -3132,8 +3142,19 @@ Finish every pending or in_progress item with concrete evidence before returning
         config.agent.modelMaxRetries,
       );
     };
-    let result: Result = await invokeImplementation(implementationMessage);
+    const seeded = Boolean(config.sandbox.seedPatch);
+    let result: Result = seeded
+      ? {
+          status: "done",
+          summary:
+            "Seeded implementation applied from a prior patch for review-only evaluation.",
+          tests: "Seeded patch applied; the implementer did not run.",
+          commitMessage: "Apply prior implementation",
+          questions: [],
+        }
+      : await invokeImplementation(implementationMessage);
     if (
+      !seeded &&
       !config.reviewer.pairedWorkflow.enabled &&
       needsCompletionContinuation(result)
     ) {
@@ -3154,7 +3175,7 @@ Finish every pending or in_progress item with concrete evidence before returning
         `${invokeConfig.configurable.thread_id}-completion`,
       );
     }
-    if (config.reviewer.pairedWorkflow.enabled) {
+    if (!seeded && config.reviewer.pairedWorkflow.enabled) {
       const maxSourceChangeRounds = 4;
       let sourceChangeReady = false;
       for (let round = 1; round <= maxSourceChangeRounds; round++) {
