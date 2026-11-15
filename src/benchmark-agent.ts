@@ -293,6 +293,7 @@ async function main() {
                       output:
                         configuration.reviewer.outputUsdPerMillion ??
                         configuration.agent.outputUsdPerMillion,
+                      cache: configuration.agent.cacheReadUsdPerMillion,
                     }
                   : role === "planner" || role === "synthesis"
                     ? {
@@ -304,21 +305,28 @@ async function main() {
                           configuration.reviewer.pairedWorkflow
                             .plannerOutputUsdPerMillion ??
                           configuration.agent.outputUsdPerMillion,
+                        cache: configuration.agent.cacheReadUsdPerMillion,
                       }
                     : {
                         input: configuration.agent.inputUsdPerMillion,
                         output: configuration.agent.outputUsdPerMillion,
+                        cache: configuration.agent.cacheReadUsdPerMillion,
                       };
+              const cacheRate = rates.cache ?? rates.input;
+              const cached = Math.min(usage.cacheRead, usage.input);
               return (
                 total +
-                (usage.input * rates.input + usage.output * rates.output) / 1e6
+                ((usage.input - cached) * rates.input +
+                  cached * cacheRate +
+                  usage.output * rates.output) /
+                  1e6
               );
             }, 0)
           : null,
         costBudgetUsd: costBudget,
         budgetEnforced: false,
         budgetPolicy:
-          "Uses the configured per-token input and output prices with a hard monetary ceiling; the harness separately bounds runtime and agent steps.",
+          "Uses the configured per-token input, cached-input, and output prices with a hard monetary ceiling; the harness separately bounds runtime and agent steps.",
       },
       null,
       2,
