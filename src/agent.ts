@@ -1010,16 +1010,20 @@ const COMPACTION_TRANSCRIPT_CHARS = 160_000;
 const contractRequirementSchema = z.object({
   quote: z.string().min(1).max(600),
   requirement: z.string().min(1).max(1_200),
+  kind: z.enum(["explicit", "inferred"]).default("explicit"),
+  basis: z.string().max(600).optional(),
   boundary: z.string().max(600).optional(),
 });
 const contractChecklistResponseSchema = z.object({
-  requirements: z.array(contractRequirementSchema).min(1).max(24),
+  requirements: z.array(contractRequirementSchema).min(1).max(28),
 });
 
 export type ContractRequirement = {
   id: string;
   quote: string;
   requirement: string;
+  kind?: "explicit" | "inferred";
+  basis?: string;
   boundary?: string;
 };
 
@@ -1030,25 +1034,43 @@ const planItemSchema = z.object({
   evidence: z.string().max(400).optional(),
 });
 
-// One cheap extraction pass turns the task text into an atomic requirement
-// checklist. It deliberately avoids repository inspection and implementation
-// design so it cannot anchor the implementer to a speculative architecture.
+// One extraction pass turns the task text into an atomic requirement checklist
+// and adds inferred requirements grounded in the repository's existing tests and
+// conventions. It must not prescribe an implementation architecture.
 async function extractContractChecklist(
   config: Config,
   job: Job,
   store: Store,
+  sandbox: Sandbox,
   task: string,
   signal: AbortSignal,
 ): Promise<ContractRequirement[]> {
+  let shellCalls = 0;
   const planner = config.reviewer.pairedWorkflow;
   const agent = createAgent({
     model: createModel(config, undefined, 32_000, {
       reasoningEffort: "low",
     }),
     systemPrompt:
-      "Extract a complete, non-redundant product requirement checklist from a software task, ordered by priority: (1) core behaviors, state rules, and public interfaces/exports, (2) option parsing, normalization, defaults, invariants, and edge cases, (3) error conditions, and (4) technical runtime/package constraints. Preserve the task's own requirement granularity: keep each distinct numbered or bulleted requirement as its own item without merging separate items together, and keep cohesive clauses of a single option, signature, or validation rule together in one item that explicitly lists all stated cases rather than splitting one sentence into per-parameter or per-method fragments. Skip high-level summary sentences that are fully specified by detailed requirements below, and exclude git, branch, commit, pull-request, or reading-order workflow instructions. Quote the exact source text for every item, and never drop any stated product behavior or case. Populate boundary only when a requirement is genuinely ambiguous or leaves an interaction with existing code unspecified, stating the concrete contract question to verify against repository conventions; omit boundary when the requirement is clear, and never put file placement or implementation architecture in boundary. Do not propose an implementation design and do not inspect code.",
+      'Extract a complete, non-redundant product requirement checklist from a software task, ordered by priority: (1) core behaviors, state rules, and public interfaces/exports, (2) option parsing, normalization, defaults, invariants, and edge cases, (3) error conditions, and (4) technical runtime/package constraints. Preserve the task\'s own requirement granularity: keep each distinct numbered or bulleted requirement as its own item without merging separate items together, and keep cohesive clauses of a single option, signature, or validation rule together in one item that explicitly lists all stated cases rather than splitting one sentence into per-parameter or per-method fragments. Skip high-level summary sentences that are fully specified by detailed requirements below, and exclude git, branch, commit, pull-request, or reading-order workflow instructions. Quote the exact source text for every item, and never drop any stated product behavior or case. Populate boundary only when a requirement is genuinely ambiguous or leaves an interaction with existing code unspecified, stating the concrete contract question to verify against repository conventions; omit boundary when the requirement is clear, and never put file placement or implementation architecture in boundary. Do not propose an implementation design and do not inspect code. Before answering, inspect the repository read-only with the shell tool (at most 12 commands): look at existing tests, sibling APIs, and conventions to infer behaviors the task implies but does not state (return values, ordering/registration semantics, reset and lifecycle interactions). Add each grounded inferred item with kind "inferred" and basis naming the observed convention. Mark directly quoted items kind "explicit". Do not invent unrelated features and do not propose an implementation design.',
     responseFormat: toolStrategy(contractChecklistResponseSchema),
-    tools: [],
+    tools: [
+      tool(
+        async ({ command }: { command: string }) => {
+          if (++shellCalls > 12)
+            throw new Error(
+              "Read-only inspection budget exhausted (12 commands).",
+            );
+          return sandbox.shell(command, signal);
+        },
+        {
+          name: "shell",
+          description:
+            "Inspect the repository read-only. Use focused commands (ls, rg, cat) to learn existing tests and conventions; do not modify files.",
+          schema: z.object({ command: z.string().max(20000) }),
+        },
+      ),
+    ],
     middleware: [
       budgetMiddleware(config, job, store, signal, "planner", {
         input:
@@ -2611,7 +2633,7 @@ export async function code(
             description:
               "Record or update the implementation plan. Keep one item per requirement or step, mark items in_progress/completed only with evidence, and never drop an item without recording why.",
             schema: z.object({
-              plan: z.array(planItemSchema).min(1).max(32),
+              plan: z.array(planItemSchema).min(1).max(36),
             }),
           },
         ),
@@ -2736,6 +2758,7 @@ Finish every pending or in_progress item with concrete evidence before returning
           config,
           job,
           store,
+          sandbox,
           taskMessage.content,
           signal,
         ));

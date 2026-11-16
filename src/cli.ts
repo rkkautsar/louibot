@@ -95,7 +95,7 @@ benchmark
       );
     const command =
       options.agentCommand ??
-      `node ${shellQuote(benchmarkAgentPath)} --config ${shellQuote(resolve(options.config))}`;
+      `${shellQuote(process.execPath)} ${shellQuote(benchmarkAgentPath)} --config ${shellQuote(resolve(options.config))}`;
     const result = await runBenchmarkCase(
       file,
       command,
