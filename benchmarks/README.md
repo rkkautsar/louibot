@@ -97,16 +97,20 @@ Label these results `shared-runtime-task-tests`: they use the task tests in a co
 The recorded comparison is DeepSWE v1.1, a repo-level issue-resolution benchmark with an official
 per-task verifier. Tasks come from the published DeepSeek rollouts in
 `deepswe-trials-deepseek-20261115.json`, so every task has four mini-SWE attempts to compare
-against. The four selected TypeScript tasks split two solved and two failed in all four attempts;
-the harness lives in `benchmarks/deepswe/`.
+against. The harness lives in `benchmarks/deepswe/`.
 
-Costs are cache-aware: the rate card ($0.167/M uncached input, $0.0028/M cache read, $0.236/M
-output) was fitted by least squares over the 452 published trials. Configure it with
-`agent.cacheReadUsdPerMillion` alongside the input and output rates. Results and per-run artifacts
-live under `.louibot/benchmarks/deepswe-subset-20261115/`.
+The current comparison is a 2x2 ablation over ofetch and true-myth (mini-SWE 4/4) plus awilix and
+koota (mini-SWE 0/4): implementer only, implementer + requirement checklist, implementer + review,
+and both. The table and the core finding live in the top-level README. Short version: the review
+loop changed no outcome in any pair, the checklist is task-dependent (fixed awilix, cost koota), and
+the checklist arm is now the default with review opt-in and bounded to two rounds / 120 calls.
 
-First batch (2026-11-15): ofetch and true-myth pass (matching mini-SWE), superjson passes (mini-SWE
-0/4), awilix fails 23/24 (matching mini-SWE). Totals: Louibot $0.629, 143m; mini-SWE $0.282, 80m.
+`claude-code-by-agents-recursive-delegation` is excluded: its published mini-SWE 4/4 is three
+out-of-memory crashes that the official verifier counted as passes. The evaluator now rejects OOM
+output, all-zero-duration JUnit cases on long verifier runs, and passes with no testcases.
+
+Results and per-run artifacts live under `.louibot/benchmarks/deepswe-subset-20261115/` and
+`.louibot/benchmarks/ablation-1plus1/`.
 
 External adapter result example (write to `BENCHMARK_RESULT_FILE`):
 
