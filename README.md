@@ -33,25 +33,37 @@ Use `@louibot revise` on a draft PR for review feedback. Clarification is enable
 
 ## Benchmarks
 
-Both agents use `deepseek/deepseek-v4-flash` through CommandCode. The recorded comparison is
-[DeepSWE v1.1](https://deepswe.datacurve.ai/), a repo-level issue-resolution benchmark with an
-official verifier. Four TypeScript tasks were chosen from the published DeepSeek rollouts: two
-that mini-SWE solved in all four attempts, two that it failed in all four.
+Both agents use `deepseek/deepseek-v4-flash` through CommandCode. The comparison is
+[DeepSWE v1.1](https://deepswe.datacurve.ai/), using TypeScript tasks from the published rollouts:
+two that mini-SWE solved in all four attempts and two that it failed in all four. Each task was run
+as a 2x2 ablation: implementer only, implementer + requirement checklist, implementer + independent
+review, and both.
 
-| Task                                       | Mini-SWE (4 attempts) | Louibot | Louibot time | Louibot cost |
-| ------------------------------------------ | --------------------- | ------- | ------------ | ------------ |
-| ofetch-per-origin-circuit-breaker          | 4/4 pass              | pass    | 29m42s       | $0.127       |
-| true-myth-iterable-collection-combinators  | 4/4 pass              | pass    | 39m30s       | $0.178       |
-| superjson-error-stack-serialization        | 0/4 (77–79/80 f2p)    | **pass** | 56m31s      | $0.257       |
-| awilix-async-container-initialization      | 0/4 (23/24 f2p)       | fail    | 17m44s*      | $0.066*      |
+| Task      | Mini-SWE | Implementer       | + checklist (default) | + review           | + both            |
+| --------- | -------- | ----------------- | --------------------- | ------------------ | ----------------- |
+| ofetch    | 4/4      | pass 47/47 $0.119 | pass 47/47 $0.074     | pass 47/47 $0.101  | pass 47/47 $0.066 |
+| true-myth | 4/4      | pass 96/96 $0.154 | pass 96/96 $0.074     | pass 96/96 $0.055  | pass 96/96 $0.054 |
+| awilix    | 0/4      | fail 23/24 $0.118 | **pass 24/24 $0.075** | fail 23/24 $0.151  | pass 24/24 $0.145 |
+| koota     | 0/4      | fail 50/51 $0.209 | fail 47/51 $0.125     | fail 50/51 $0.361* | fail 47/51 $0.085 |
 
-The deep workflow recovered `superjson`, which mini-SWE failed on all four attempts, and reproduced
-mini-SWE's single-test miss on `awilix`. \*`awilix` was resumed from the persisted workflow handoff,
-so its time and cost exclude planning.
+The core finding: **the independent review loop changed no outcome in any pair**, while the
+requirement checklist is task-dependent. The checklist recovered awilix's single missed behavior
+(23/24 to 24/24) but cost koota three behaviors (50/51 to 47/51) and was neutral where the
+implementer already passed; it is also consistently cheaper than implementer-only. Review added
+cost and time without moving a score, so it is now bounded to two rounds and 120 reviewer model
+calls, and it is **off by default**.
 
-Costs are cache-aware and priced with the rate card inferred from the published mini-SWE rollouts
-($0.167/M uncached input, $0.0028/M cache read, $0.236/M output). On these four tasks Louibot totals
-**$0.629** against mini-SWE's **$0.282**, and 143m against 80m wall time.
+The default workflow is therefore the checklist arm: one requirement-extraction pass (explicit
+requirements plus repo-grounded inferred ones), the implementer, and no review rounds. Set
+`reviewer.pairedWorkflow.review: true` to opt back into adversarial review.
+
+`claude-code-by-agents-recursive-delegation` is excluded from the table: its published mini-SWE
+"4/4" is three out-of-memory crashes that the official verifier counted as passes (the verifier
+still writes a passing JUnit report when the suite dies). The harness now rejects crash reports and
+zero-duration testcases. `*` marks the koota review run that predates the review cap.
+
+Costs are cache-aware, priced with the rate card inferred from the published mini-SWE rollouts
+($0.167/M uncached input, $0.0028/M cache read, $0.236/M output).
 
 Harness, task configs, and per-run artifacts: [benchmark harness](benchmarks/README.md).
 

@@ -90,11 +90,11 @@ test("reviewer is opt-in and can use a separately priced model on the same provi
     enabled: false,
     pairedWorkflow: {
       enabled: false,
-      review: true,
-      frontload: "planner",
+      review: false,
+      frontload: "checklist",
       parallelInvestigations: 6,
       maxInvestigationRounds: 8,
-      maxImplementationReviews: 5,
+      maxImplementationReviews: 2,
       evidenceJudge: {
         accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
         apiTokenEnv: "CLOUDFLARE_API_TOKEN",

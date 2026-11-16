@@ -72,11 +72,11 @@ export const schema = z
         pairedWorkflow: z
           .object({
             enabled: z.boolean().default(false),
-            review: z.boolean().default(true),
+            review: z.boolean().default(false),
             checklistPath: z.string().min(1).optional(),
             frontload: z
               .enum(["planner", "checklist", "none"])
-              .default("planner"),
+              .default("checklist"),
             investigatorReasoningEffort: reasoningEffortSchema.optional(),
             implementerReasoningEffort: reasoningEffortSchema.optional(),
             plannerModel: z
@@ -116,11 +116,11 @@ export const schema = z
           })
           .default({
             enabled: false,
-            review: true,
-            frontload: "planner",
+            review: false,
+            frontload: "checklist",
             parallelInvestigations: 6,
             maxInvestigationRounds: 8,
-            maxImplementationReviews: 5,
+            maxImplementationReviews: 2,
             evidenceJudge: {
               accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
               apiTokenEnv: "CLOUDFLARE_API_TOKEN",
@@ -139,11 +139,11 @@ export const schema = z
         enabled: false,
         pairedWorkflow: {
           enabled: false,
-          review: true,
-          frontload: "planner",
+          review: false,
+          frontload: "checklist",
           parallelInvestigations: 6,
           maxInvestigationRounds: 8,
-          maxImplementationReviews: 5,
+          maxImplementationReviews: 2,
           evidenceJudge: {
             accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
             apiTokenEnv: "CLOUDFLARE_API_TOKEN",
