@@ -1007,6 +1007,21 @@ Report only actionable, high-confidence findings. Treat missing normalization in
 const COMPACTION_KEEP_MESSAGES = 24;
 const COMPACTION_TRANSCRIPT_CHARS = 160_000;
 
+const CONTRACT_EXTRACTION_PROMPT =
+  'Extract a complete, non-redundant product requirement checklist from a software task, ordered by priority: (1) core behaviors, state rules, and public interfaces/exports, (2) option parsing, normalization, defaults, invariants, and edge cases, (3) error conditions, and (4) technical runtime/package constraints. Preserve the task\'s own requirement granularity: keep each distinct numbered or bulleted requirement as its own item without merging separate items together, and keep cohesive clauses of a single option, signature, or validation rule together in one item that explicitly lists all stated cases rather than splitting one sentence into per-parameter or per-method fragments. Skip high-level summary sentences that are fully specified by detailed requirements below, and exclude git, branch, commit, pull-request, or reading-order workflow instructions. Quote the exact source text for every item, and never drop any stated product behavior or case. Populate boundary only when a requirement is genuinely ambiguous or leaves an interaction with existing code unspecified, stating the concrete contract question to verify against repository conventions; omit boundary when the requirement is clear, and never put file placement or implementation architecture in boundary. Do not propose an implementation design and do not inspect code. Before answering, inspect the repository read-only with the shell tool (at most 12 commands): look at existing tests, sibling APIs, and conventions to infer behaviors the task implies but does not state (return values, ordering/registration semantics, reset and lifecycle interactions). Add each grounded inferred item with kind "inferred" and basis naming the observed convention. Mark directly quoted items kind "explicit". Do not invent unrelated features and do not propose an implementation design.';
+
+const CONTRACT_CHECKLIST_FORMAT_VERSION = 2;
+
+function checklistSourceHash(config: Config): string {
+  return createHash("sha256")
+    .update(CONTRACT_EXTRACTION_PROMPT)
+    .update("\\n")
+    .update(String(CONTRACT_CHECKLIST_FORMAT_VERSION))
+    .update("\\n")
+    .update(config.model)
+    .digest("hex");
+}
+
 const contractRequirementSchema = z.object({
   quote: z.string().min(1).max(600),
   requirement: z.string().min(1).max(1_200),
@@ -1051,8 +1066,7 @@ async function extractContractChecklist(
     model: createModel(config, undefined, 48_000, {
       reasoningEffort: "max",
     }),
-    systemPrompt:
-      'Extract a complete, non-redundant product requirement checklist from a software task, ordered by priority: (1) core behaviors, state rules, and public interfaces/exports, (2) option parsing, normalization, defaults, invariants, and edge cases, (3) error conditions, and (4) technical runtime/package constraints. Preserve the task\'s own requirement granularity: keep each distinct numbered or bulleted requirement as its own item without merging separate items together, and keep cohesive clauses of a single option, signature, or validation rule together in one item that explicitly lists all stated cases rather than splitting one sentence into per-parameter or per-method fragments. Skip high-level summary sentences that are fully specified by detailed requirements below, and exclude git, branch, commit, pull-request, or reading-order workflow instructions. Quote the exact source text for every item, and never drop any stated product behavior or case. Populate boundary only when a requirement is genuinely ambiguous or leaves an interaction with existing code unspecified, stating the concrete contract question to verify against repository conventions; omit boundary when the requirement is clear, and never put file placement or implementation architecture in boundary. Do not propose an implementation design and do not inspect code. Before answering, inspect the repository read-only with the shell tool (at most 12 commands): look at existing tests, sibling APIs, and conventions to infer behaviors the task implies but does not state (return values, ordering/registration semantics, reset and lifecycle interactions). Add each grounded inferred item with kind "inferred" and basis naming the observed convention. Mark directly quoted items kind "explicit". Do not invent unrelated features and do not propose an implementation design.',
+    systemPrompt: CONTRACT_EXTRACTION_PROMPT,
     responseFormat: toolStrategy(contractChecklistResponseSchema),
     tools: [
       tool(
@@ -1133,31 +1147,58 @@ const CONTRACT_CHECKLIST_FILE = "contract-checklist.json";
 async function saveContractChecklist(
   dir: string,
   checklist: ContractRequirement[],
+  sourceHash: string,
 ): Promise<void> {
   await writeFile(
     join(dir, CONTRACT_CHECKLIST_FILE),
-    JSON.stringify({ requirements: checklist }, null, 2) + "\n",
+    JSON.stringify(
+      {
+        formatVersion: CONTRACT_CHECKLIST_FORMAT_VERSION,
+        sourceHash,
+        requirements: checklist,
+      },
+      null,
+      2,
+    ) + "\n",
   );
 }
 
 async function saveChecklistFile(
   path: string,
   checklist: ContractRequirement[],
+  sourceHash: string,
 ): Promise<void> {
   await writeFile(
     path,
-    JSON.stringify({ requirements: checklist }, null, 2) + "\n",
+    JSON.stringify(
+      {
+        formatVersion: CONTRACT_CHECKLIST_FORMAT_VERSION,
+        sourceHash,
+        requirements: checklist,
+      },
+      null,
+      2,
+    ) + "\n",
   );
 }
 
 async function loadChecklistFile(
   path: string,
+  sourceHash: string,
 ): Promise<ContractRequirement[] | undefined> {
   try {
     const raw = JSON.parse(await readFile(path, "utf8")) as {
+      formatVersion?: number;
+      sourceHash?: string;
       requirements?: ContractRequirement[];
     };
-    return Array.isArray(raw.requirements) ? raw.requirements : undefined;
+    if (
+      raw.formatVersion !== CONTRACT_CHECKLIST_FORMAT_VERSION ||
+      raw.sourceHash !== sourceHash ||
+      !Array.isArray(raw.requirements)
+    )
+      return undefined;
+    return raw.requirements;
   } catch {
     return undefined;
   }
@@ -1165,12 +1206,23 @@ async function loadChecklistFile(
 
 async function loadContractChecklist(
   dir: string,
+  sourceHash: string,
 ): Promise<ContractRequirement[] | undefined> {
   try {
     const raw = JSON.parse(
       await readFile(join(dir, CONTRACT_CHECKLIST_FILE), "utf8"),
-    ) as { requirements?: ContractRequirement[] };
-    return Array.isArray(raw.requirements) ? raw.requirements : undefined;
+    ) as {
+      formatVersion?: number;
+      sourceHash?: string;
+      requirements?: ContractRequirement[];
+    };
+    if (
+      raw.formatVersion !== CONTRACT_CHECKLIST_FORMAT_VERSION ||
+      raw.sourceHash !== sourceHash ||
+      !Array.isArray(raw.requirements)
+    )
+      return undefined;
+    return raw.requirements;
   } catch {
     return undefined;
   }
@@ -2747,11 +2799,15 @@ Finish every pending or in_progress item with concrete evidence before returning
       const checklistPath = config.reviewer.pairedWorkflow.checklistPath
         ? resolve(config.reviewer.pairedWorkflow.checklistPath)
         : undefined;
-      const savedChecklist = checklistPath
-        ? await loadChecklistFile(checklistPath)
-        : options.resume
-          ? await loadContractChecklist(store.dir)
-          : undefined;
+      const checklistHash = checklistSourceHash(config);
+      const allowCached = !config.reviewer.pairedWorkflow.checklistRefresh;
+      const savedChecklist = allowCached
+        ? checklistPath
+          ? await loadChecklistFile(checklistPath, checklistHash)
+          : options.resume
+            ? await loadContractChecklist(store.dir, checklistHash)
+            : undefined
+        : undefined;
       contractChecklist =
         savedChecklist ??
         (await extractContractChecklist(
@@ -2764,8 +2820,17 @@ Finish every pending or in_progress item with concrete evidence before returning
         ));
       if (contractChecklist.length && !savedChecklist) {
         if (checklistPath)
-          await saveChecklistFile(checklistPath, contractChecklist);
-        else await saveContractChecklist(store.dir, contractChecklist);
+          await saveChecklistFile(
+            checklistPath,
+            contractChecklist,
+            checklistHash,
+          );
+        else
+          await saveContractChecklist(
+            store.dir,
+            contractChecklist,
+            checklistHash,
+          );
       }
       activePlan = contractChecklist.map((item) => ({
         id: item.id,

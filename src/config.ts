@@ -74,6 +74,7 @@ export const schema = z
             enabled: z.boolean().default(true),
             review: z.boolean().default(false),
             checklistPath: z.string().min(1).optional(),
+            checklistRefresh: z.boolean().default(false),
             frontload: z
               .enum(["planner", "checklist", "none"])
               .default("checklist"),
@@ -117,6 +118,7 @@ export const schema = z
           .default({
             enabled: true,
             review: false,
+            checklistRefresh: false,
             frontload: "checklist",
             parallelInvestigations: 6,
             maxInvestigationRounds: 8,
@@ -140,6 +142,7 @@ export const schema = z
         pairedWorkflow: {
           enabled: true,
           review: false,
+          checklistRefresh: false,
           frontload: "checklist",
           parallelInvestigations: 6,
           maxInvestigationRounds: 8,

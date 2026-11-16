@@ -89,6 +89,7 @@ test("reviewer is opt-in and can use a separately priced model on the same provi
   assert.deepEqual(schema.parse(base).reviewer, {
     enabled: false,
     pairedWorkflow: {
+      checklistRefresh: false,
       enabled: true,
       review: false,
       frontload: "checklist",
