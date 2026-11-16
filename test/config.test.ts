@@ -89,7 +89,7 @@ test("reviewer is opt-in and can use a separately priced model on the same provi
   assert.deepEqual(schema.parse(base).reviewer, {
     enabled: false,
     pairedWorkflow: {
-      enabled: false,
+      enabled: true,
       review: false,
       frontload: "checklist",
       parallelInvestigations: 6,
@@ -115,7 +115,7 @@ test("reviewer is opt-in and can use a separately priced model on the same provi
   });
   assert.equal(parsed.reviewer.model, "anthropic/claude-reviewer");
   assert.equal(parsed.reviewer.maxSteps, 8);
-  assert.equal(parsed.reviewer.pairedWorkflow.enabled, false);
+  assert.equal(parsed.reviewer.pairedWorkflow.enabled, true);
   const paired = schema.parse({
     ...base,
     model: "openai-compatible/openai/gpt-4o-mini",
@@ -221,7 +221,7 @@ test("reviewer is opt-in and can use a separately priced model on the same provi
     schema.parse({
       ...base,
       reviewer: {
-        pairedWorkflow: { enabled: true },
+        pairedWorkflow: { enabled: true, review: true },
       },
     }),
   );

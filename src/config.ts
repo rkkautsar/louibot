@@ -71,7 +71,7 @@ export const schema = z
         enabled: z.boolean().default(false),
         pairedWorkflow: z
           .object({
-            enabled: z.boolean().default(false),
+            enabled: z.boolean().default(true),
             review: z.boolean().default(false),
             checklistPath: z.string().min(1).optional(),
             frontload: z
@@ -115,7 +115,7 @@ export const schema = z
               }),
           })
           .default({
-            enabled: false,
+            enabled: true,
             review: false,
             frontload: "checklist",
             parallelInvestigations: 6,
@@ -138,7 +138,7 @@ export const schema = z
       .default({
         enabled: false,
         pairedWorkflow: {
-          enabled: false,
+          enabled: true,
           review: false,
           frontload: "checklist",
           parallelInvestigations: 6,
@@ -255,7 +255,7 @@ export const schema = z
         message:
           "Set reviewer inputUsdPerMillion and outputUsdPerMillion when using a different reviewer model",
       });
-    if (config.reviewer.pairedWorkflow.enabled && !config.reviewer.enabled)
+    if (config.reviewer.pairedWorkflow.review && !config.reviewer.enabled)
       context.addIssue({
         code: "custom",
         path: ["reviewer", "pairedWorkflow", "enabled"],

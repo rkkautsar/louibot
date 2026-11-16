@@ -53,9 +53,9 @@ implementer already passed; it is also consistently cheaper than implementer-onl
 cost and time without moving a score, so it is now bounded to two rounds and 120 reviewer model
 calls, and it is **off by default**.
 
-The default workflow is therefore the checklist arm: one requirement-extraction pass (explicit
-requirements plus repo-grounded inferred ones), the implementer, and no review rounds. Set
-`reviewer.pairedWorkflow.review: true` to opt back into adversarial review.
+The default workflow is therefore the checklist arm, on for every task: one requirement-extraction
+pass (explicit requirements plus repo-grounded inferred ones), the implementer, and no review
+rounds. Set `reviewer.pairedWorkflow.review: true` to opt back into adversarial review.
 
 `claude-code-by-agents-recursive-delegation` is excluded from the table: its published mini-SWE
 "4/4" is three out-of-memory crashes that the official verifier counted as passes (the verifier
