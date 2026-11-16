@@ -39,12 +39,12 @@ two that mini-SWE solved in all four attempts and two that it failed in all four
 as a 2x2 ablation: implementer only, implementer + requirement checklist, implementer + independent
 review, and both.
 
-| Task      | Mini-SWE | Implementer       | + checklist (default) | + review           | + both            |
-| --------- | -------- | ----------------- | --------------------- | ------------------ | ----------------- |
-| ofetch    | 4/4      | pass 47/47 $0.119 | pass 47/47 $0.074     | pass 47/47 $0.101  | pass 47/47 $0.066 |
-| true-myth | 4/4      | pass 96/96 $0.154 | pass 96/96 $0.074     | pass 96/96 $0.055  | pass 96/96 $0.054 |
-| awilix    | 0/4      | fail 23/24 $0.118 | **pass 24/24 $0.075** | fail 23/24 $0.151  | pass 24/24 $0.145 |
-| koota     | 0/4      | fail 50/51 $0.209 | fail 47/51 $0.125     | fail 50/51 $0.361* | fail 47/51 $0.085 |
+| Task      | Mini-SWE result | Mini-SWE cost | Implementer       | + checklist (default) | + review           | + both            |
+| --------- | --------------- | ------------- | ----------------- | --------------------- | ------------------ | ----------------- |
+| ofetch    | 4/4             | $0.065        | pass 47/47 $0.119 | pass 47/47 $0.074     | pass 47/47 $0.101  | pass 47/47 $0.066 |
+| true-myth | 4/4             | $0.082        | pass 96/96 $0.154 | pass 96/96 $0.074     | pass 96/96 $0.055  | pass 96/96 $0.054 |
+| awilix    | 0/4             | $0.082        | fail 23/24 $0.118 | **pass 24/24 $0.075** | fail 23/24 $0.151  | pass 24/24 $0.145 |
+| koota     | 0/4             | $0.119        | fail 50/51 $0.209 | fail 47/51 $0.125     | fail 50/51 $0.361* | fail 47/51 $0.085 |
 
 The core finding: **the independent review loop changed no outcome in any pair**, while the
 requirement checklist is task-dependent. The checklist recovered awilix's single missed behavior
@@ -63,7 +63,8 @@ still writes a passing JUnit report when the suite dies). The harness now reject
 zero-duration testcases. `*` marks the koota review run that predates the review cap.
 
 Costs are cache-aware, priced with the rate card inferred from the published mini-SWE rollouts
-($0.167/M uncached input, $0.0028/M cache read, $0.236/M output).
+($0.167/M uncached input, $0.0028/M cache read, $0.236/M output). Mini-SWE cost is the mean of its
+four published attempts on the same card; Louibot costs are per run.
 
 Harness, task configs, and per-run artifacts: [benchmark harness](benchmarks/README.md).
 
