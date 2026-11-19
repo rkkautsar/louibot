@@ -1163,7 +1163,7 @@ async function saveContractChecklist(
   );
 }
 
-async function saveChecklistFile(
+export async function saveChecklistFile(
   path: string,
   checklist: ContractRequirement[],
   sourceHash: string,
@@ -1182,7 +1182,7 @@ async function saveChecklistFile(
   );
 }
 
-async function loadChecklistFile(
+export async function loadChecklistFile(
   path: string,
   sourceHash: string,
 ): Promise<ContractRequirement[] | undefined> {
