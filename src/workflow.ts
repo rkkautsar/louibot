@@ -308,13 +308,30 @@ async function publishChanges(
       commitSubject(publishingJob.issue, result.commitMessage, result.summary),
     ]);
   }
-  await git(publishingJob.worktree, [
+  const pushArgs = [
     "-c",
     "core.hooksPath=/dev/null",
     "push",
     "origin",
     `HEAD:refs/heads/${publishingJob.branch}`,
-  ]);
+  ];
+  try {
+    await git(publishingJob.worktree, pushArgs);
+  } catch (error) {
+    // A retried job reuses its branch; the previous attempt may have left a
+    // remote branch at a different commit. Louibot owns this branch, so a
+    // forced update is safe and keeps the existing PR in sync.
+    if (!/rejected|fetch first|non-fast-forward/i.test(String(error)))
+      throw error;
+    await git(publishingJob.worktree, [
+      "-c",
+      "core.hooksPath=/dev/null",
+      "push",
+      "--force",
+      "origin",
+      `HEAD:refs/heads/${publishingJob.branch}`,
+    ]);
+  }
   const pullRequest =
     (await github.findPR(publishingJob.branch)) ??
     (await github.createPR(
