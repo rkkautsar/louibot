@@ -249,9 +249,15 @@ export async function prepare(
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 
+  const originHead = await git(root, [
+    "symbolic-ref",
+    "--short",
+    "refs/remotes/origin/HEAD",
+  ]).catch(() => "");
+  const base = originHead.trim() || "HEAD";
   const branches = await git(root, ["branch", "--list", branch]);
   if (branches) await git(root, ["worktree", "add", destination, branch]);
-  else await git(root, ["worktree", "add", "-b", branch, destination, "HEAD"]);
+  else await git(root, ["worktree", "add", "-b", branch, destination, base]);
 }
 
 function secretPath(path: string): boolean {

@@ -309,16 +309,26 @@ async function resolveConfig(options: StartOptions) {
       "Use either --clear-endpoint or compatible endpoint options",
     );
   const saved = savedConfig(repositoryRoot);
-  const repository =
-    options.repository ??
-    (saved.repository as string | undefined) ??
-    (await git(repositoryRoot, ["remote", "get-url", "origin"])).match(
-      /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/,
-    )?.[1];
-  if (!repository)
+  const origin = await git(repositoryRoot, [
+    "remote",
+    "get-url",
+    "origin",
+  ]).catch(() => "");
+  const originRepository = origin.match(
+    /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/,
+  )?.[1];
+  if (!originRepository)
     throw new Error(
-      "Could not determine GitHub repository; pass --repository owner/repo",
+      "This checkout's origin is not a GitHub repository; run Louibot from a GitHub checkout.",
     );
+  if (
+    options.repository &&
+    options.repository.toLowerCase() !== originRepository.toLowerCase()
+  )
+    throw new Error(
+      `--repository ${options.repository} does not match this checkout's origin (${originRepository}).`,
+    );
+  const repository = originRepository;
 
   const savedAgent = (saved.agent ?? {}) as Record<string, unknown>;
   const savedReviewer = (saved.reviewer ?? {}) as Record<string, unknown>;
@@ -645,23 +655,6 @@ addStartOptions(cli.command("start")).action(async (options: StartOptions) => {
     throw new Error(
       "Validation is required but no commands are configured. Set validation.commands or pass --validation-command.",
     );
-  try {
-    const origin = await git(repositoryRoot, ["remote", "get-url", "origin"]);
-    const originRepository = origin.match(
-      /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/,
-    )?.[1];
-    if (
-      originRepository &&
-      originRepository.toLowerCase() !==
-        repositoryConfig.repository.toLowerCase()
-    )
-      throw new Error(
-        `Run Louibot from a checkout of ${repositoryConfig.repository}; this checkout's origin is ${originRepository}.`,
-      );
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Run Louibot from"))
-      throw error;
-  }
   await runWorker(repositoryConfig);
 });
 cli.parseAsync().catch((error) => {
