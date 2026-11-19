@@ -2644,10 +2644,15 @@ export async function code(
     let implementationShellCalls = 0;
     let contractChecklist: ContractRequirement[] | undefined;
     let activePlan: Array<z.infer<typeof planItemSchema>> = [];
-    const implementationSchema = resultSchemaFor(false);
+    const implementationSchema = resultSchemaFor(
+      config.agent.clarificationEnabled,
+    );
     const agent = createAgent({
       model,
-      systemPrompt: prompt(false, sandboxEnvironment(sandbox)),
+      systemPrompt: prompt(
+        config.agent.clarificationEnabled,
+        sandboxEnvironment(sandbox),
+      ),
       responseFormat: toolStrategy(implementationSchema),
       tools: [
         tool(
@@ -3286,6 +3291,19 @@ Finish every pending or in_progress item with concrete evidence before returning
           hasNonTestSourceChange: hasNonTestSourceChange(diff),
         });
         if (sourceChangeReady) break;
+        // The implementer needs a product decision; the workflow posts its
+        // questions and waits instead of forcing a guessed implementation. The
+        // status cast matches workflow.ts: the Result type comes from an
+        // unparameterized schema and omits the clarify status.
+        if (
+          config.agent.clarificationEnabled &&
+          (result.status as string) === "clarify"
+        ) {
+          store.log(job.issue, "paired.implementation.clarification", {
+            round,
+          });
+          break;
+        }
         if (round === maxSourceChangeRounds)
           throw new Error(
             `Paired workflow requires a completed non-test source change; none was produced after ${maxSourceChangeRounds} implementation rounds (last status: ${result.status}).`,
