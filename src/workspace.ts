@@ -256,8 +256,18 @@ export async function prepare(
   ]).catch(() => "");
   const base = originHead.trim() || "HEAD";
   const branches = await git(root, ["branch", "--list", branch]);
-  if (branches) await git(root, ["worktree", "add", destination, branch]);
-  else await git(root, ["worktree", "add", "-b", branch, destination, base]);
+  const add = () =>
+    branches
+      ? git(root, ["worktree", "add", destination, branch])
+      : git(root, ["worktree", "add", "-b", branch, destination, base]);
+  try {
+    await add();
+  } catch (error) {
+    // A directory removed by hand stays registered; prune and retry once.
+    await git(root, ["worktree", "prune"]).catch(() => {});
+    await add();
+    void error;
+  }
 }
 
 function secretPath(path: string): boolean {
@@ -689,6 +699,7 @@ export class Sandbox {
     private readonly network: SandboxNetwork = "bridge",
     cacheKey = worktree,
     private readonly readOnly = false,
+    private readonly commandTimeoutSeconds?: number,
   ) {
     this.id = `louibot-${createHash("sha256").update(resolve(worktree)).digest("hex").slice(0, 20)}${readOnly ? "-review" : ""}`;
     this.cacheVolume = cacheVolumeName(cacheKey);
@@ -702,7 +713,7 @@ export class Sandbox {
       cpus: SANDBOX_CPUS,
       memoryMb: SANDBOX_MEMORY_MB,
       pidsLimit: SANDBOX_PIDS_LIMIT,
-      commandTimeoutSeconds: this.timeoutSeconds,
+      commandTimeoutSeconds: this.commandTimeoutSeconds ?? this.timeoutSeconds,
       network: this.network,
     };
   }

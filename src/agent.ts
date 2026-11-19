@@ -2611,6 +2611,8 @@ export async function code(
     (...args: unknown[]) => store.log(job.issue, "shell", args),
     config.sandbox.network,
     config.repository,
+    false,
+    config.sandbox.commandTimeoutSeconds,
   );
   const createRunModel = (
     modelName?: string,
@@ -4014,6 +4016,7 @@ export async function reviewImplementation(
     "none",
     config.repository,
     true,
+    config.sandbox.commandTimeoutSeconds,
   );
   try {
     await sandbox.start();

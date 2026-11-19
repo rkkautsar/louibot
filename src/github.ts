@@ -508,7 +508,12 @@ export class GitHub {
     const existing = await this.paginated<ApiComment>(
       `repos/${this.repo}/issues/${issue}/comments?per_page=100`,
     );
-    const found = existing.find((item) => item.body.includes(marker));
+    const login = (await this.currentLogin()).toLowerCase();
+    const found = existing.find(
+      (item) =>
+        item.user.login.toLowerCase() === login &&
+        item.body.includes(`<!-- ${marker} -->`),
+    );
     if (found) return found.id;
 
     const content = `${body}\n\n<!-- ${marker} -->`;
@@ -559,22 +564,31 @@ export class GitHub {
     const repository = await this.api<{ default_branch: string }>(
       `repos/${this.repo}`,
     );
-    const created = await this.api<{
+    let created: {
       number: number;
       title: string;
       html_url: string;
       state: string;
       draft: boolean;
-    }>(`repos/${this.repo}/pulls`, {
-      method: "POST",
-      body: {
-        title,
-        body,
-        head: branch,
-        base: repository.default_branch,
-        draft: true,
-      },
-    });
+    };
+    try {
+      created = await this.api(`repos/${this.repo}/pulls`, {
+        method: "POST",
+        body: {
+          title,
+          body,
+          head: branch,
+          base: repository.default_branch,
+          draft: true,
+        },
+      });
+    } catch (error) {
+      if (this.hasStatus(error, 422) && /already exists/i.test(String(error))) {
+        const existing = await this.findPR(branch);
+        if (existing) return existing;
+      }
+      throw error;
+    }
     return {
       number: created.number,
       title: created.title,

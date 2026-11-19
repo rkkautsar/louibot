@@ -303,6 +303,8 @@ async function publishChanges(
     await git(publishingJob.worktree, [
       "-c",
       "core.hooksPath=/dev/null",
+      "-c",
+      "commit.gpgsign=false",
       "commit",
       "-m",
       commitSubject(publishingJob.issue, result.commitMessage, result.summary),

@@ -60,10 +60,12 @@ test("authorization allows write roles and fails closed on lookup errors", async
 });
 
 test("failure comments use an idempotency marker so retries do not duplicate them", async () => {
-  let savedComment: { id: number; body: string } | undefined;
+  let savedComment:
+    { id: number; body: string; user: { login: string } } | undefined;
   let posts = 0;
   const github = client((args) => {
     const [method, endpoint, serializedBody] = args;
+    if (endpoint === "user") return JSON.stringify({ login: "louibot" });
     if (endpoint.includes("/comments") && method === "GET")
       return JSON.stringify(savedComment ? [savedComment] : []);
     if (endpoint.includes("/comments") && method === "POST") {
@@ -71,6 +73,7 @@ test("failure comments use an idempotency marker so retries do not duplicate the
       savedComment = {
         id: 71,
         body: JSON.parse(serializedBody!).body,
+        user: { login: "louibot" },
       };
       return JSON.stringify(savedComment);
     }
