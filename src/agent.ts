@@ -259,7 +259,15 @@ export type BenchmarkGrade = {
   stderr: string;
 };
 
-export type Result = z.infer<typeof resultSchema> & {
+/**
+ * The shared result contract. A clarification-enabled run may return "clarify"
+ * so the workflow can post the questions and wait; the disabled runtime schema
+ * still rejects it, but the type must not hide a valid outcome.
+ */
+export type ResultStatus = "done" | "clarify" | "blocked" | "inconclusive";
+
+export type Result = Omit<z.infer<typeof resultSchema>, "status"> & {
+  status: ResultStatus;
   benchmarkGrade?: BenchmarkGrade;
   planningOnly?: true;
   planning?: z.infer<typeof planDocumentSchema>;
@@ -500,7 +508,17 @@ export function needsBlockedContinuation(result: Result): boolean {
   return result.status === "blocked";
 }
 
+/**
+ * A clarify result hands the open decision to the maintainer. It must reach the
+ * workflow's clarification path, which posts the questions and waits for an
+ * authorized reply, instead of being forced through implementation rounds.
+ */
+export function isClarificationRequest(result: Result): boolean {
+  return result.status === "clarify";
+}
+
 export function needsCompletionContinuation(result: Result): boolean {
+  if (isClarificationRequest(result)) return false;
   if (needsBlockedContinuation(result) || result.status === "inconclusive")
     return true;
   if (result.status !== "done") return false;
@@ -2644,10 +2662,15 @@ export async function code(
     let implementationShellCalls = 0;
     let contractChecklist: ContractRequirement[] | undefined;
     let activePlan: Array<z.infer<typeof planItemSchema>> = [];
-    const implementationSchema = resultSchemaFor(false);
+    // The issue's product requirements decide whether the implementer may ask
+    // the maintainer to choose the design. An enabled run must be able to
+    // return clarify (the workflow posts the questions and waits); a disabled
+    // run must proceed with conservative assumptions instead.
+    const clarificationEnabled = config.agent.clarificationEnabled;
+    const implementationSchema = resultSchemaFor(clarificationEnabled);
     const agent = createAgent({
       model,
-      systemPrompt: prompt(false, sandboxEnvironment(sandbox)),
+      systemPrompt: prompt(clarificationEnabled, sandboxEnvironment(sandbox)),
       responseFormat: toolStrategy(implementationSchema),
       tools: [
         tool(
@@ -2959,7 +2982,7 @@ Finish every pending or in_progress item with concrete evidence before returning
               (question) =>
                 `${question.question} (default: ${question.assumption})`,
             ),
-          } as unknown as Result;
+          };
         store.log(job.issue, "workflow.hypotheses", hypotheses);
 
         if (hypotheses.status === "fast") {
@@ -3286,6 +3309,13 @@ Finish every pending or in_progress item with concrete evidence before returning
           hasNonTestSourceChange: hasNonTestSourceChange(diff),
         });
         if (sourceChangeReady) break;
+        if (isClarificationRequest(result)) {
+          store.log(job.issue, "paired.implementation.clarification", {
+            round,
+            questions: result.questions,
+          });
+          break;
+        }
         if (round === maxSourceChangeRounds)
           throw new Error(
             `Paired workflow requires a completed non-test source change; none was produced after ${maxSourceChangeRounds} implementation rounds (last status: ${result.status}).`,
