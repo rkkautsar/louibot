@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import {
-  readFileSync,
-  openSync,
   closeSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -560,6 +561,7 @@ cli
     } while (options.follow);
   });
 async function runWorker(repositoryConfig: ReturnType<typeof config>) {
+  mkdirSync(stateDirectory, { recursive: true });
   const lockPath = `${stateDirectory}/worker.lock`;
   let lockDescriptor: number | undefined;
   let lockCreated = false;
