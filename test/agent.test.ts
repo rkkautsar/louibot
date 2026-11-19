@@ -11,6 +11,7 @@ import {
   invokeWithCompletionRecovery,
   invokeWithCostBudget,
   hasNonTestSourceChange,
+  isClarificationRequest,
   controllerValidationRecords,
   optionalPlannedTestFiles,
   referencedTestFiles,
@@ -1094,6 +1095,46 @@ test("result schema supports inconclusive and respects disabled clarification", 
     schema.safeParse({ ...valid, status: "inconclusive" }).success,
     true,
   );
+});
+
+test("clarification-enabled results can ask the maintainer before implementing", () => {
+  const schema = resultSchemaFor(true);
+  const clarify = {
+    status: "clarify",
+    summary: "The issue leaves the marking design open.",
+    tests: "No implementation attempted while the design is undecided.",
+    questions: [
+      "Pin, star, or save?",
+      "Per channel or global?",
+      "Persist across restarts?",
+    ],
+  };
+  assert.equal(schema.safeParse(clarify).success, true);
+  assert.equal(resultSchemaFor(false).safeParse(clarify).success, false);
+  assert.equal(schema.safeParse({ ...clarify, questions: [] }).success, true);
+  const [{ schema: responseSchema }] = toolStrategy(
+    resultSchemaFor(true),
+  ) as unknown as Array<{
+    schema: { properties: { status: { enum: string[] } } };
+  }>;
+  assert.deepEqual(responseSchema.properties.status.enum, [
+    "done",
+    "clarify",
+    "blocked",
+    "inconclusive",
+  ]);
+});
+
+test("clarify results wait for the maintainer instead of forcing implementation", () => {
+  const result = {
+    status: "clarify" as const,
+    summary: "Three product decisions are open.",
+    tests: "No source change was made.",
+    questions: ["Pin, star, or save?"],
+  };
+  assert.equal(isClarificationRequest(result), true);
+  assert.equal(isClarificationRequest({ ...result, status: "done" }), false);
+  assert.equal(needsCompletionContinuation(result), false);
 });
 
 test("transient completion failures get bounded retries", async () => {

@@ -16,6 +16,7 @@ import { prepare, git, cleanup } from "./workspace.js";
 import { diagnoseError } from "./errors.js";
 import {
   code,
+  isClarificationRequest,
   reviewImplementation,
   type Result,
   type ReviewResult,
@@ -601,7 +602,7 @@ export function workflow(
     })
     .addEdge(START, "implement")
     .addConditionalEdges("implement", ({ job, result }) => {
-      if ((result.status as string) === "clarify") return "clarify";
+      if (isClarificationRequest(result)) return "clarify";
       if (result.status !== "done") return "blocked";
       return config.reviewer.enabled &&
         !config.reviewer.pairedWorkflow.enabled &&

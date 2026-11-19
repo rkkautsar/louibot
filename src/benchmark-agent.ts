@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import {
   approvedPlanHandoffSchema,
   code,
+  isClarificationRequest,
   reportedTokenUsage,
   type ApprovedPlanHandoff,
 } from "./agent.js";
@@ -229,7 +230,7 @@ async function main() {
         ? "plan"
         : response.status === "done"
           ? "implement"
-          : (response.status as string) === "clarify"
+          : isClarificationRequest(response)
             ? "clarify"
             : response.status === "inconclusive"
               ? "inconclusive"
