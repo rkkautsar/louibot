@@ -96,7 +96,7 @@ export const schema = z
               .int()
               .min(1)
               .max(10)
-              .default(5),
+              .default(2),
             evidenceJudge: z
               .object({
                 accountIdEnv: z

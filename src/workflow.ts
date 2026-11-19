@@ -321,38 +321,47 @@ async function publishChanges(
     // A retried job reuses its branch; the previous attempt may have left a
     // remote branch at a different commit. Louibot owns this branch, so a
     // forced update is safe and keeps the existing PR in sync.
-    if (!/rejected|fetch first|non-fast-forward/i.test(String(error)))
-      throw error;
+    if (!/fetch first|non-fast-forward/i.test(String(error))) throw error;
+    await git(publishingJob.worktree, [
+      "-c",
+      "core.hooksPath=/dev/null",
+      "fetch",
+      "origin",
+      publishingJob.branch,
+    ]);
     await git(publishingJob.worktree, [
       "-c",
       "core.hooksPath=/dev/null",
       "push",
-      "--force",
+      "--force-with-lease",
       "origin",
       `HEAD:refs/heads/${publishingJob.branch}`,
     ]);
   }
-  const pullRequest =
-    (await github.findPR(publishingJob.branch)) ??
-    (await github.createPR(
-      publishingJob.branch,
-      publishingJob.title,
-      pullRequestBody(
-        publishingJob.issue,
-        result.summary,
-        result.tests,
-        readPullRequestTemplate(publishingJob.worktree),
-        {
-          model: publishingJob.model,
-          reviewerModel: publishingJob.reviewerModel,
-          reviewerMaxSteps,
-          reviewStatus: publishingJob.reviewStatus,
-          reviewSummary: publishingJob.reviewSummary,
-          codingSeconds: publishingJob.codingSeconds,
-          estimatedCostUsd: publishingJob.cost,
-        },
-      ),
-    ));
+  let pullRequest = await github.findPR(publishingJob.branch);
+  if (pullRequest && pullRequest.state !== "open") {
+    await github.reopenPR(pullRequest.number);
+    pullRequest = { ...pullRequest, state: "open" };
+  }
+  pullRequest ??= await github.createPR(
+    publishingJob.branch,
+    publishingJob.title,
+    pullRequestBody(
+      publishingJob.issue,
+      result.summary,
+      result.tests,
+      readPullRequestTemplate(publishingJob.worktree),
+      {
+        model: publishingJob.model,
+        reviewerModel: publishingJob.reviewerModel,
+        reviewerMaxSteps,
+        reviewStatus: publishingJob.reviewStatus,
+        reviewSummary: publishingJob.reviewSummary,
+        codingSeconds: publishingJob.codingSeconds,
+        estimatedCostUsd: publishingJob.cost,
+      },
+    ),
+  );
   publishingJob.pr = pullRequest.number;
   if (job.pr !== undefined) {
     await github.comment(
@@ -415,7 +424,11 @@ export function workflow(
         result = await code(config, currentJob, store, signal, {
           resume: (currentJob.attempt ?? 1) > 1,
         });
-        if (config.reviewer.pairedWorkflow.enabled) {
+        if (
+          config.reviewer.enabled &&
+          config.reviewer.pairedWorkflow.enabled &&
+          config.reviewer.pairedWorkflow.review
+        ) {
           currentJob.reviewerModel = config.reviewer.model ?? config.model;
           if (result.status === "done") {
             currentJob.reviewedRevision = currentJob.revision;
@@ -620,8 +633,11 @@ export function workflow(
     .addConditionalEdges("implement", ({ job, result }) => {
       if ((result.status as string) === "clarify") return "clarify";
       if (result.status !== "done") return "blocked";
+      const reviewConfigured =
+        config.reviewer.pairedWorkflow.enabled &&
+        config.reviewer.pairedWorkflow.review;
       return config.reviewer.enabled &&
-        !config.reviewer.pairedWorkflow.enabled &&
+        !reviewConfigured &&
         job.reviewedRevision !== job.revision
         ? "independentReview"
         : "publish";
@@ -833,6 +849,10 @@ async function recordFailure(
   signal: AbortSignal,
 ): Promise<void> {
   if (store.stopped(job.issue)) {
+    store.save({ ...job, status: "stopped" });
+    await github
+      .setIssuePhase(job.issue, "blocked", config.github)
+      .catch(() => {});
     store.log(job.issue, "stopped", diagnoseError(error));
     return;
   }
@@ -846,7 +866,7 @@ async function recordFailure(
   currentJob.status = store.stopped(job.issue) ? "stopped" : "failed";
   currentJob.error = diagnostic.message;
   currentJob.errorCode = diagnostic.code ?? diagnostic.name;
-  const retryCommand = currentJob.pr ? "@louibot revise" : "@louibot implement";
+  const retryCommand = "@louibot implement";
   currentJob.remediation = diagnostic.nextStep.replaceAll(
     "@louibot implement",
     retryCommand,

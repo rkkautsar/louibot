@@ -752,7 +752,7 @@ export class Sandbox {
   async start(): Promise<void> {
     if (this.started) return;
     try {
-      if (!this.stage) {
+      if (!this.stageReady) {
         this.stage = `${resolve(this.worktree)}.sandbox`;
         await prepareSandboxStage(this.worktree, this.stage);
         this.stageReady = true;

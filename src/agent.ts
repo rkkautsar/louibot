@@ -1012,13 +1012,17 @@ const CONTRACT_EXTRACTION_PROMPT =
 
 const CONTRACT_CHECKLIST_FORMAT_VERSION = 2;
 
-function checklistSourceHash(config: Config): string {
+function checklistSourceHash(config: Config, job: Job): string {
   return createHash("sha256")
     .update(CONTRACT_EXTRACTION_PROMPT)
     .update("\\n")
     .update(String(CONTRACT_CHECKLIST_FORMAT_VERSION))
     .update("\\n")
     .update(config.model)
+    .update("\n")
+    .update(job.title)
+    .update("\n")
+    .update(job.body ?? "")
     .digest("hex");
 }
 
@@ -1142,15 +1146,17 @@ async function extractContractChecklist(
   return [];
 }
 
-const CONTRACT_CHECKLIST_FILE = "contract-checklist.json";
+const contractChecklistFile = (dir: string, issue: number) =>
+  join(dir, `contract-checklist-${issue}.json`);
 
 async function saveContractChecklist(
   dir: string,
+  issue: number,
   checklist: ContractRequirement[],
   sourceHash: string,
 ): Promise<void> {
   await writeFile(
-    join(dir, CONTRACT_CHECKLIST_FILE),
+    contractChecklistFile(dir, issue),
     JSON.stringify(
       {
         formatVersion: CONTRACT_CHECKLIST_FORMAT_VERSION,
@@ -1206,11 +1212,12 @@ export async function loadChecklistFile(
 
 async function loadContractChecklist(
   dir: string,
+  issue: number,
   sourceHash: string,
 ): Promise<ContractRequirement[] | undefined> {
   try {
     const raw = JSON.parse(
-      await readFile(join(dir, CONTRACT_CHECKLIST_FILE), "utf8"),
+      await readFile(contractChecklistFile(dir, issue), "utf8"),
     ) as {
       formatVersion?: number;
       sourceHash?: string;
@@ -2552,19 +2559,24 @@ async function runPlanningOnlyWorkflow(args: {
 
 // Persisted paired-workflow output so a resumed benchmark run can skip
 // planner/investigators/synthesis instead of re-paying for them.
-const WORKFLOW_HANDOFF_FILE = "workflow-handoff.json";
-async function loadWorkflowHandoff(dir: string): Promise<unknown | undefined> {
+const workflowHandoffFile = (dir: string, issue: number) =>
+  join(dir, `workflow-handoff-${issue}.json`);
+async function loadWorkflowHandoff(
+  dir: string,
+  issue: number,
+): Promise<unknown | undefined> {
   try {
-    return JSON.parse(await readFile(join(dir, WORKFLOW_HANDOFF_FILE), "utf8"));
+    return JSON.parse(await readFile(workflowHandoffFile(dir, issue), "utf8"));
   } catch {
     return undefined;
   }
 }
 async function saveWorkflowHandoff(
   dir: string,
+  issue: number,
   handoff: unknown,
 ): Promise<void> {
-  await writeFile(join(dir, WORKFLOW_HANDOFF_FILE), JSON.stringify(handoff));
+  await writeFile(workflowHandoffFile(dir, issue), JSON.stringify(handoff));
 }
 
 export async function code(
@@ -2611,6 +2623,30 @@ export async function code(
     });
   };
   try {
+    if ((job.attempt ?? 1) > 1) {
+      try {
+        const dirty = await git(job.worktree, ["status", "--porcelain"]);
+        if (dirty.trim()) {
+          await git(job.worktree, ["add", "-A"]);
+          await git(job.worktree, [
+            "-c",
+            "user.name=Louibot",
+            "-c",
+            "user.email=louibot@localhost",
+            "commit",
+            "-m",
+            `louibot: preserve work from attempt ${(job.attempt ?? 1) - 1}`,
+          ]);
+          store.log(job.issue, "retry.work.preserved", true);
+        }
+      } catch (error) {
+        store.log(
+          job.issue,
+          "retry.preserve_failed",
+          String(error).slice(-1_000),
+        );
+      }
+    }
     await sandbox.start();
     let workspaceBaseline: string | undefined;
     try {
@@ -2799,13 +2835,13 @@ Finish every pending or in_progress item with concrete evidence before returning
       const checklistPath = config.reviewer.pairedWorkflow.checklistPath
         ? resolve(config.reviewer.pairedWorkflow.checklistPath)
         : undefined;
-      const checklistHash = checklistSourceHash(config);
+      const checklistHash = checklistSourceHash(config, job);
       const allowCached = !config.reviewer.pairedWorkflow.checklistRefresh;
       const savedChecklist = allowCached
         ? checklistPath
           ? await loadChecklistFile(checklistPath, checklistHash)
           : options.resume
-            ? await loadContractChecklist(store.dir, checklistHash)
+            ? await loadContractChecklist(store.dir, job.issue, checklistHash)
             : undefined
         : undefined;
       contractChecklist =
@@ -2828,6 +2864,7 @@ Finish every pending or in_progress item with concrete evidence before returning
         else
           await saveContractChecklist(
             store.dir,
+            job.issue,
             contractChecklist,
             checklistHash,
           );
@@ -2853,7 +2890,7 @@ Finish every pending or in_progress item with concrete evidence before returning
       config.reviewer.pairedWorkflow.frontload === "planner"
     ) {
       const resumedHandoff = options.resume
-        ? await loadWorkflowHandoff(store.dir)
+        ? await loadWorkflowHandoff(store.dir, job.issue)
         : undefined;
       if (resumedHandoff) {
         store.log(job.issue, "workflow.handoff.resumed", true);
@@ -3136,7 +3173,7 @@ Finish every pending or in_progress item with concrete evidence before returning
             investigations,
             synthesis,
           };
-          await saveWorkflowHandoff(store.dir, workflowHandoff);
+          await saveWorkflowHandoff(store.dir, job.issue, workflowHandoff);
           implementationMessage = JSON.stringify({
             task: JSON.parse(taskMessage.content),
             planner: workflowHandoff ?? fastPlanForReview,

@@ -108,6 +108,9 @@ export class Store {
     // or otherwise stale conversation from the failed attempt.
     job.attempt = (job.attempt ?? 1) + 1;
     job.retryRequested = true;
+    job.reviewedRevision = undefined;
+    job.reviewStatus = undefined;
+    job.reviewSummary = undefined;
     job.error = undefined;
     job.errorCode = undefined;
     job.remediation = undefined;

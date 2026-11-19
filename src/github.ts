@@ -79,7 +79,7 @@ type PhaseLabels = {
 };
 
 type ApiOptions = {
-  method?: "GET" | "POST" | "DELETE";
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
 };
 
@@ -542,6 +542,13 @@ export class GitHub {
           isDraft: pull.draft,
         }
       : undefined;
+  }
+
+  async reopenPR(number: number): Promise<void> {
+    await this.api(`repos/${this.repo}/pulls/${number}`, {
+      method: "PATCH",
+      body: { state: "open" },
+    });
   }
 
   async createPR(
