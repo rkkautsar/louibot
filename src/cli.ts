@@ -643,6 +643,23 @@ addStartOptions(cli.command("start")).action(async (options: StartOptions) => {
     throw new Error(
       "Validation is required but no commands are configured. Set validation.commands or pass --validation-command.",
     );
+  try {
+    const origin = await git(repositoryRoot, ["remote", "get-url", "origin"]);
+    const originRepository = origin.match(
+      /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/,
+    )?.[1];
+    if (
+      originRepository &&
+      originRepository.toLowerCase() !==
+        repositoryConfig.repository.toLowerCase()
+    )
+      throw new Error(
+        `Run Louibot from a checkout of ${repositoryConfig.repository}; this checkout's origin is ${originRepository}.`,
+      );
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Run Louibot from"))
+      throw error;
+  }
   await runWorker(repositoryConfig);
 });
 cli.parseAsync().catch((error) => {

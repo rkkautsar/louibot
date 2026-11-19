@@ -367,11 +367,11 @@ async function materializeWorkspaceGit(stage: string): Promise<void> {
       GIT_TERMINAL_PROMPT: "0",
     };
     await execFileAsync("git", ["init", "-q"], { cwd: stage, env });
-    await execFileAsync(
-      "git",
-      ["add", "-A", "--", ".", ":(exclude)node_modules"],
-      { cwd: stage, env, maxBuffer: MAX_GIT_PATHS },
-    );
+    await execFileAsync("git", ["add", "-A"], {
+      cwd: stage,
+      env,
+      maxBuffer: MAX_GIT_PATHS,
+    });
     await execFileAsync("git", ["commit", "-qm", "baseline"], {
       cwd: stage,
       env,

@@ -87,8 +87,11 @@ class GitHubApiError extends Error {
   constructor(
     readonly status: number,
     endpoint: string,
+    detail?: string,
   ) {
-    super(`GitHub API request failed (HTTP ${status}): ${endpoint}`);
+    super(
+      `GitHub API request failed (HTTP ${status}): ${endpoint}${detail ? `: ${detail}` : ""}`,
+    );
   }
 }
 
@@ -148,7 +151,13 @@ export class GitHub {
           const text = `${stderr ?? ""} ${error.message ?? ""}`;
           const status = Number(text.match(/\bHTTP (\d{3})\b/)?.[1]);
           if (Number.isFinite(status)) {
-            reject(new GitHubApiError(status, args[1] ?? ""));
+            reject(
+              new GitHubApiError(
+                status,
+                args[1] ?? "",
+                (stderr ?? "").trim().slice(-500) || undefined,
+              ),
+            );
             return;
           }
           reject(error);
